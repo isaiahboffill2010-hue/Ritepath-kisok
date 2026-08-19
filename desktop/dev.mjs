@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
+const desktopMain = path.join(projectRoot, 'desktop', 'main.mjs');
 const frontendDir = path.join(projectRoot, 'frontend');
 const frontendViteCli = path.join(frontendDir, 'node_modules', 'vite', 'bin', 'vite.js');
 const electronCli = require.resolve('electron/cli.js');
@@ -81,7 +82,7 @@ try {
 
 const electron = spawnTracked(
   process.execPath,
-  [electronCli, projectRoot],
+  [electronCli, desktopMain],
   {
     cwd: projectRoot,
     env: {
