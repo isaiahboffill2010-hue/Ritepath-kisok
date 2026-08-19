@@ -1,0 +1,5 @@
+Welcome to RitePath Kiosk.
+
+This is the designated safe files folder for Phase 3.
+
+Use the Files app to browse this directory.

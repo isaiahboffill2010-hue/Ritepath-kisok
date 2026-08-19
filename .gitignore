@@ -1,0 +1,24 @@
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# Root node
+node_modules/
+
+# Python
+backend/__pycache__/
+backend/**/*.pyc
+backend/.venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Electron / build artifacts
+dist/
+out/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+

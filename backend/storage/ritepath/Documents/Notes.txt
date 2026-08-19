@@ -1,0 +1,5 @@
+RitePath Notes
+
+- Phase 1: Home screen
+- Phase 2: Drawer and gestures
+- Phase 3: Backend integration
