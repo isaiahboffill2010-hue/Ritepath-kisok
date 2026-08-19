@@ -2,6 +2,7 @@
   "name": "ritepath-kiosk-desktop",
   "private": true,
   "type": "module",
+  "main": "desktop/main.mjs",
   "scripts": {
     "dev:ui": "npm --prefix frontend run dev",
     "build:ui": "npm --prefix frontend run build",

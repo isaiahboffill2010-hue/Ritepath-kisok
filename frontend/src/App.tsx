@@ -4,7 +4,6 @@ import { NavigationBar } from './components/NavigationBar';
 import { HomeScreen } from './screens/HomeScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
-import { openGoogleSearch } from './lib/api';
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString([], {
@@ -73,8 +72,8 @@ export default function App() {
     closeDrawer();
   }
 
-  function handleGoogle() {
-    openGoogleSearch();
+  function openGoogle(url = 'https://www.google.com/') {
+    void window.ritepath?.openGoogle(url);
     closeDrawer();
   }
 
@@ -174,14 +173,21 @@ export default function App() {
     >
       <div className="kiosk-backdrop" aria-hidden="true" />
 
-      <section className="kiosk-screen" aria-label="RitePath Kiosk home screen">
+      <section
+        className="kiosk-screen"
+        aria-label="RitePath Kiosk home screen"
+      >
         {screenView === 'home' ? (
           <HomeScreen
             time={time}
             onSearch={(query) => {
-              openGoogleSearch(query);
+              const trimmed = query.trim();
+              const searchUrl = trimmed
+                ? `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`
+                : 'https://www.google.com/';
+              openGoogle(searchUrl);
             }}
-            onGoogleClick={handleGoogle}
+            onGoogleClick={() => openGoogle()}
             onSettingsClick={openSettings}
             onFilesClick={openFiles}
           />
@@ -199,7 +205,7 @@ export default function App() {
           isOpen={isDrawerOpen}
           time={time}
           onHomeClick={goHome}
-          onGoogleClick={handleGoogle}
+          onGoogleClick={() => openGoogle()}
           onSettingsClick={openSettings}
           onFilesClick={openFiles}
         />

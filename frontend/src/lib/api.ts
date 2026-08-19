@@ -147,15 +147,9 @@ export async function fetchFileContent(root: string, path: string) {
   return fetch(toApiUrl(`/api/files/content?${params.toString()}`));
 }
 
-export function openGoogleSearch(query?: string) {
-  const url = query ? `https://www.google.com/search?q=${encodeURIComponent(query)}` : 'https://www.google.com';
-  const desktopBridge = window.ritepath?.openExternal;
-  if (desktopBridge) {
-    void desktopBridge(url);
-    return;
-  }
-
-  window.open(url, '_blank', 'noopener,noreferrer');
+export function getGoogleSearchUrl(query?: string) {
+  const trimmed = query?.trim();
+  return trimmed ? `https://www.google.com/search?q=${encodeURIComponent(trimmed)}` : 'https://www.google.com';
 }
 
 export { BackendOfflineError };
