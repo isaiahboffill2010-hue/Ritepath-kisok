@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { AppDrawer } from './components/AppDrawer';
-import { NavigationBar } from './components/NavigationBar';
 import { HomeScreen } from './screens/HomeScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -40,6 +39,17 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.ritepath?.onOpenDrawer(() => {
+      setScreenView('home');
+      setIsDrawerOpen(true);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
   }, []);
 
   function openDrawer() {
@@ -180,13 +190,6 @@ export default function App() {
         {screenView === 'home' ? (
           <HomeScreen
             time={time}
-            onSearch={(query) => {
-              const trimmed = query.trim();
-              const searchUrl = trimmed
-                ? `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`
-                : 'https://www.google.com/';
-              openGoogle(searchUrl);
-            }}
             onGoogleClick={() => openGoogle()}
             onSettingsClick={openSettings}
             onFilesClick={openFiles}
@@ -197,7 +200,6 @@ export default function App() {
 
         {screenView === 'settings' ? <SettingsScreen time={time} onHomeClick={goHome} /> : null}
 
-        {screenView === 'home' ? <NavigationBar onHomeClick={goHome} /> : null}
       </section>
 
       {screenView === 'home' ? (

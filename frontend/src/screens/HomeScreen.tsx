@@ -1,16 +1,14 @@
 import { StatusBar } from '../components/StatusBar';
-import { GoogleSearch } from '../components/GoogleSearch';
 import { AppIcon } from '../components/AppIcon';
 
 type HomeScreenProps = {
   time: string;
-  onSearch: (query: string) => void;
   onGoogleClick: () => void;
   onSettingsClick: () => void;
   onFilesClick: () => void;
 };
 
-export function HomeScreen({ time, onSearch, onGoogleClick, onSettingsClick, onFilesClick }: HomeScreenProps) {
+export function HomeScreen({ time, onGoogleClick, onSettingsClick, onFilesClick }: HomeScreenProps) {
   return (
     <div className="kiosk-content">
       <StatusBar time={time} />
@@ -21,7 +19,9 @@ export function HomeScreen({ time, onSearch, onGoogleClick, onSettingsClick, onF
         <p className="launcher-subtitle">Touch-friendly launcher for the tablet home screen.</p>
       </div>
 
-      <GoogleSearch onSearch={onSearch} />
+      <div className="home-logo-panel" aria-hidden="true">
+        <img className="home-logo" src="/Ritepath.png" alt="" />
+      </div>
 
       <section className="app-grid" aria-label="Applications">
         <AppIcon

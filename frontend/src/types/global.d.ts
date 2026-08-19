@@ -6,6 +6,7 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       openGoogle: (url: string) => Promise<void>;
       closeGoogle: () => Promise<void>;
+      onOpenDrawer: (callback: () => void) => () => void;
     };
   }
 }

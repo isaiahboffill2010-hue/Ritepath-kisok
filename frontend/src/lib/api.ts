@@ -147,9 +147,4 @@ export async function fetchFileContent(root: string, path: string) {
   return fetch(toApiUrl(`/api/files/content?${params.toString()}`));
 }
 
-export function getGoogleSearchUrl(query?: string) {
-  const trimmed = query?.trim();
-  return trimmed ? `https://www.google.com/search?q=${encodeURIComponent(trimmed)}` : 'https://www.google.com';
-}
-
 export { BackendOfflineError };

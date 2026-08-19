@@ -23,6 +23,7 @@ export function AppDrawer({
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isVisible, setIsVisible] = useState(isOpen);
   const openFrameRef = useRef<number | null>(null);
+  const autoCloseRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -30,6 +31,12 @@ export function AppDrawer({
       openFrameRef.current = window.requestAnimationFrame(() => {
         setIsVisible(true);
       });
+      if (autoCloseRef.current !== null) {
+        window.clearTimeout(autoCloseRef.current);
+      }
+      autoCloseRef.current = window.setTimeout(() => {
+        onHomeClick();
+      }, 5000);
       return;
     }
 
@@ -38,8 +45,13 @@ export function AppDrawer({
       openFrameRef.current = null;
     }
 
+    if (autoCloseRef.current !== null) {
+      window.clearTimeout(autoCloseRef.current);
+      autoCloseRef.current = null;
+    }
+
     setIsVisible(false);
-  }, [isOpen]);
+  }, [isOpen, onHomeClick]);
 
   function handleTransitionEnd() {
     if (!isOpen) {

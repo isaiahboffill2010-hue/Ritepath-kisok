@@ -13,6 +13,7 @@ let backendProcess = null;
 let mainWindow = null;
 let googleView = null;
 let googleViewAttached = false;
+let googleGesture = null;
 
 function startBackend() {
   if (backendProcess || process.env.RITEPATH_SKIP_BACKEND === '1') {
@@ -72,11 +73,44 @@ function ensureGoogleView() {
     if (input.type === 'keyDown' && (input.key === 'Escape' || (input.alt && input.key === 'ArrowLeft'))) {
       event.preventDefault();
       hideGoogleView();
+      googleGesture = null;
     }
-
-    if (input.type === 'mouseDown' && input.x <= 80 && input.y <= 80) {
+  });
+  googleView.webContents.on('before-mouse-event', (event, mouse) => {
+    if (mouse.type === 'mouseDown' && mouse.x <= 80 && mouse.y <= 80) {
       event.preventDefault();
       hideGoogleView();
+      googleGesture = null;
+      return;
+    }
+
+    if (mouse.type === 'mouseDown') {
+      const bounds = mainWindow?.getContentBounds();
+      googleGesture = {
+        startX: mouse.x,
+        startY: mouse.y,
+        active: !bounds || mouse.y >= bounds.height - 120,
+      };
+      return;
+    }
+
+    if (mouse.type === 'mouseMove') {
+      if (!googleGesture?.active) {
+        return;
+      }
+
+      const deltaX = mouse.x - googleGesture.startX;
+      const deltaY = mouse.y - googleGesture.startY;
+      if (deltaY <= -90 && Math.abs(deltaX) <= 60) {
+        event.preventDefault();
+        googleGesture = null;
+        openDrawerFromGoogle();
+      }
+      return;
+    }
+
+    if (mouse.type === 'mouseUp') {
+      googleGesture = null;
     }
   });
 
@@ -128,6 +162,16 @@ function hideGoogleView() {
 
   mainWindow.removeBrowserView(googleView);
   googleViewAttached = false;
+  googleGesture = null;
+}
+
+function openDrawerFromGoogle() {
+  hideGoogleView();
+  if (!mainWindow) {
+    return;
+  }
+
+  mainWindow.webContents.send('ritepath:open-drawer');
 }
 
 function createWindow() {
@@ -161,6 +205,7 @@ function createWindow() {
   mainWindow.on('closed', () => {
     googleViewAttached = false;
     googleView = null;
+    googleGesture = null;
     mainWindow = null;
   });
 
