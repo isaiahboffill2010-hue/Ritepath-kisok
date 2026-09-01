@@ -1,0 +1,212 @@
+.animated-background {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Layer 1: Atmospheric Background */
+.bg-atmosphere {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    #0a0f1f 0%,
+    #0d1530 25%,
+    #0a1028 50%,
+    #070c18 75%,
+    #050810 100%
+  );
+  animation: atmosphereShift 20s ease-in-out infinite;
+}
+
+@keyframes atmosphereShift {
+  0%, 100% {
+    background: linear-gradient(
+      180deg,
+      #0a0f1f 0%,
+      #0d1530 25%,
+      #0a1028 50%,
+      #070c18 75%,
+      #050810 100%
+    );
+  }
+  50% {
+    background: linear-gradient(
+      180deg,
+      #0c1125 0%,
+      #0f1838 25%,
+      #0c1230 50%,
+      #090e1c 75%,
+      #060912 100%
+    );
+  }
+}
+
+/* Layer 2: Ambient Light Sources */
+.bg-ambient-light-1,
+.bg-ambient-light-2,
+.bg-ambient-light-3 {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+}
+
+.bg-ambient-light-1 {
+  width: 500px;
+  height: 500px;
+  top: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(100, 160, 255, 0.08) 0%, transparent 70%);
+  animation: lightFloat1 25s ease-in-out infinite;
+}
+
+.bg-ambient-light-2 {
+  width: 600px;
+  height: 600px;
+  top: 50%;
+  right: 5%;
+  transform: translateY(-50%);
+  background: radial-gradient(circle, rgba(50, 200, 255, 0.06) 0%, transparent 70%);
+  animation: lightFloat2 30s ease-in-out infinite;
+}
+
+.bg-ambient-light-3 {
+  width: 400px;
+  height: 400px;
+  bottom: 10%;
+  left: -10%;
+  background: radial-gradient(circle, rgba(100, 140, 255, 0.05) 0%, transparent 70%);
+  animation: lightFloat3 28s ease-in-out infinite;
+}
+
+@keyframes lightFloat1 {
+  0%, 100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-45%) translateY(-40px);
+  }
+}
+
+@keyframes lightFloat2 {
+  0%, 100% {
+    transform: translateY(-50%) translateX(0);
+  }
+  50% {
+    transform: translateY(-50%) translateX(-60px);
+  }
+}
+
+@keyframes lightFloat3 {
+  0%, 100% {
+    transform: translateX(0) translateY(0);
+  }
+  50% {
+    transform: translateX(50px) translateY(-50px);
+  }
+}
+
+/* Layer 3: Canvas for Particles */
+.bg-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+/* Layer 4: Data Streams */
+.bg-data-streams {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.data-stream {
+  position: absolute;
+  background: linear-gradient(90deg, transparent, rgba(100, 180, 255, 0.1), transparent);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.data-stream-1 {
+  width: 200%;
+  height: 2px;
+  top: 20%;
+  left: 0;
+  animation: dataFlow 15s linear infinite;
+}
+
+.data-stream-2 {
+  width: 200%;
+  height: 1.5px;
+  top: 50%;
+  left: 0;
+  animation: dataFlow 20s linear infinite reverse;
+  transform: skewY(-2deg);
+}
+
+.data-stream-3 {
+  width: 200%;
+  height: 1px;
+  top: 75%;
+  left: 0;
+  animation: dataFlow 25s linear infinite;
+  transform: skewY(3deg);
+}
+
+@keyframes dataFlow {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* Layer 5: Grid */
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(100, 150, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100, 150, 255, 0.02) 1px, transparent 1px);
+  background-size: 80px 80px;
+  background-position: 0 0;
+  animation: gridShift 60s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes gridShift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 80px 80px;
+  }
+}
+
+/* Layer 6: Vignette */
+.bg-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0, 0, 0, 0.3) 100%);
+  pointer-events: none;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .bg-atmosphere,
+  .bg-ambient-light-1,
+  .bg-ambient-light-2,
+  .bg-ambient-light-3,
+  .data-stream,
+  .bg-grid {
+    animation: none !important;
+  }
+}
