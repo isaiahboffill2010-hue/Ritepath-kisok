@@ -1,10 +1,8 @@
-import { app, BrowserView, BrowserWindow, ipcMain, shell } from 'electron';
-import { spawn } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+const { app, BrowserView, BrowserWindow, ipcMain, shell } = require('electron');
+const { spawn } = require('node:child_process');
+const path = require('node:path');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = __dirname || path.dirname(require.main.filename);
 const projectRoot = path.resolve(__dirname, '..');
 const frontendDist = path.join(projectRoot, 'frontend', 'dist', 'index.html');
 const preloadPath = path.join(__dirname, 'preload.mjs');
