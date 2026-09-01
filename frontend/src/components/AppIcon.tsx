@@ -5,9 +5,10 @@ type AppIconProps = {
   icon: string;
   variant?: 'home' | 'drawer';
   onClick: () => void;
+  customColor?: string;
 };
 
-export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onClick }: AppIconProps) {
+export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onClick, customColor }: AppIconProps) {
   const isImageIcon = icon.startsWith('/') || icon.includes('.');
   const iconClass = isImageIcon ? 'image' : icon;
 
@@ -15,6 +16,7 @@ export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onCl
     <button
       type="button"
       className={`app-icon app-icon--${accent} app-icon--${variant}`}
+      style={customColor ? { '--badge-color': customColor } as React.CSSProperties : undefined}
       aria-label={ariaLabel}
       onClick={onClick}
     >

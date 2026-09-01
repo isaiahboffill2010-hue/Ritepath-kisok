@@ -1,5 +1,6 @@
 import { StatusBar } from '../components/StatusBar';
 import { AppIcon } from '../components/AppIcon';
+import { type CustomApp } from '../lib/api';
 
 type HomeScreenProps = {
   time: string;
@@ -7,9 +8,21 @@ type HomeScreenProps = {
   onSettingsClick: () => void;
   onFilesClick: () => void;
   onRitePathClick: () => void;
+  customApps: CustomApp[];
+  onCustomAppClick: (url: string) => void;
+  onAddAppClick: () => void;
 };
 
-export function HomeScreen({ time, onGoogleClick, onSettingsClick, onFilesClick, onRitePathClick }: HomeScreenProps) {
+export function HomeScreen({
+  time,
+  onGoogleClick,
+  onSettingsClick,
+  onFilesClick,
+  onRitePathClick,
+  customApps,
+  onCustomAppClick,
+  onAddAppClick,
+}: HomeScreenProps) {
   return (
     <div className="kiosk-content">
       <StatusBar time={time} />
@@ -53,7 +66,25 @@ export function HomeScreen({ time, onGoogleClick, onSettingsClick, onFilesClick,
           icon="/Ritepath.png"
           onClick={onRitePathClick}
         />
+        {customApps.map((app) => (
+          <AppIcon
+            key={app.id}
+            label={app.displayName}
+            accent="blue"
+            ariaLabel={`${app.displayName} app`}
+            icon={app.logo}
+            onClick={() => onCustomAppClick(app.url)}
+            customColor={app.backgroundColor}
+          />
+        ))}
       </section>
+
+      <div className="app-add-section">
+        <button className="add-app-button" onClick={onAddAppClick} aria-label="Add your own app">
+          <span className="add-app-icon">+</span>
+          <span className="add-app-label">Add Your Own App</span>
+        </button>
+      </div>
     </div>
   );
 }

@@ -55,6 +55,14 @@ export type SystemStatus = {
   safe_files_root: string;
 };
 
+export type CustomApp = {
+  id: string;
+  url: string;
+  logo: string;
+  backgroundColor: string;
+  displayName: string;
+};
+
 class BackendOfflineError extends Error {
   constructor(message = 'RitePath Backend Offline') {
     super(message);
@@ -151,6 +159,24 @@ export async function fetchFiles(root = 'ritepath', path = '') {
 export async function fetchFileContent(root: string, path: string) {
   const params = new URLSearchParams({ root, path });
   return fetch(toApiUrl(`/api/files/content?${params.toString()}`));
+}
+
+export async function fetchCustomApps() {
+  const response = await requestJson<{ apps: CustomApp[] }>('/api/custom-apps');
+  return response.apps;
+}
+
+export async function addCustomApp(app: { url: string; logo: string; backgroundColor: string }) {
+  return requestJson<CustomApp>('/api/custom-apps', {
+    method: 'POST',
+    body: JSON.stringify(app),
+  });
+}
+
+export async function deleteCustomApp(appId: string) {
+  return requestJson<{ message: string }>(`/api/custom-apps/${appId}`, {
+    method: 'DELETE',
+  });
 }
 
 export { BackendOfflineError };

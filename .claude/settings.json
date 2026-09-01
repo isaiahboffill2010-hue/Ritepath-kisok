@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --prefix frontend run build)",
+      "Bash(python -m py_compile backend/app/main.py)",
+      "Bash(git config *)"
+    ]
+  }
+}

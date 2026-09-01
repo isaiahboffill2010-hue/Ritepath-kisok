@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 import hashlib
@@ -12,6 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +25,8 @@ logger = logging.getLogger("ritepath")
 APP_START = time.time()
 BASE_DIR = Path(__file__).resolve().parent.parent
 FILES_ROOT = (BASE_DIR / "storage" / "ritepath").resolve()
+STORAGE_DIR = (BASE_DIR / "storage").resolve()
+CUSTOM_APPS_FILE = (STORAGE_DIR / "custom_apps.json").resolve()
 
 app = FastAPI(title="RitePath Kiosk API", version="3.0.0")
 app.add_middleware(
@@ -41,6 +45,20 @@ class VolumePayload(BaseModel):
 class WifiConnectPayload(BaseModel):
     ssid: str = Field(min_length=1, max_length=128)
     password: str = Field(default="", max_length=256)
+
+
+class CustomAppPayload(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+    logo: str
+    backgroundColor: str = Field(min_length=7, max_length=7)  # #RRGGBB
+
+
+class CustomApp(BaseModel):
+    id: str
+    url: str
+    logo: str
+    backgroundColor: str
+    displayName: str
 
 
 def ensure_files_root() -> None:
@@ -379,6 +397,48 @@ def connect_wifi_network(ssid: str, password: str) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="Wi-Fi service unavailable")
 
 
+def get_domain_name(url: str) -> str:
+    """Extract domain name from URL for automatic app naming."""
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace("www.", "")
+
+        # Generate display name from domain
+        parts = domain.split(".")
+        if len(parts) > 1:
+            name = parts[0].capitalize()
+        else:
+            name = domain.capitalize()
+
+        return name
+    except Exception:
+        return "Custom App"
+
+
+def load_custom_apps() -> dict[str, Any]:
+    """Load custom apps from storage."""
+    if not CUSTOM_APPS_FILE.exists():
+        return {}
+
+    try:
+        with open(CUSTOM_APPS_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading custom apps: {e}")
+        return {}
+
+
+def save_custom_apps(apps: dict[str, Any]) -> None:
+    """Save custom apps to storage."""
+    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(CUSTOM_APPS_FILE, "w") as f:
+            json.dump(apps, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving custom apps: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save custom app")
+
+
 def file_entry(path: Path, root_id: str) -> dict[str, Any]:
     stat = path.stat()
     mime_type, _ = mimetypes.guess_type(path.name)
@@ -473,6 +533,71 @@ def read_wifi() -> dict[str, Any]:
 @app.post("/api/wifi/connect")
 def wifi_connect(payload: WifiConnectPayload) -> dict[str, Any]:
     return connect_wifi_network(payload.ssid, payload.password)
+
+
+@app.get("/api/custom-apps")
+def get_custom_apps() -> dict[str, Any]:
+    apps = load_custom_apps()
+    return {"apps": list(apps.values())}
+
+
+@app.post("/api/custom-apps")
+def create_custom_app(payload: CustomAppPayload) -> dict[str, Any]:
+    # Validate URL
+    try:
+        parsed = urlparse(payload.url)
+        if parsed.scheme not in ["http", "https"]:
+            raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
+        if parsed.scheme != "https":
+            raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+
+    # Validate color format
+    if not payload.backgroundColor.startswith("#") or len(payload.backgroundColor) != 7:
+        raise HTTPException(status_code=400, detail="Invalid color format")
+
+    # Generate app ID and display name
+    app_id = hashlib.md5(payload.url.encode()).hexdigest()[:12]
+    display_name = get_domain_name(payload.url)
+
+    # Load existing apps
+    apps = load_custom_apps()
+
+    # Check for duplicates
+    for existing_app in apps.values():
+        if existing_app.get("url") == payload.url:
+            raise HTTPException(status_code=400, detail="This URL is already added")
+
+    # Create new app
+    new_app = {
+        "id": app_id,
+        "url": payload.url,
+        "logo": payload.logo,
+        "backgroundColor": payload.backgroundColor,
+        "displayName": display_name,
+    }
+
+    apps[app_id] = new_app
+    save_custom_apps(apps)
+
+    logger.info(f"Created custom app: {app_id} ({display_name}) -> {payload.url}")
+    return new_app
+
+
+@app.delete("/api/custom-apps/{app_id}")
+def delete_custom_app(app_id: str) -> dict[str, Any]:
+    apps = load_custom_apps()
+
+    if app_id not in apps:
+        raise HTTPException(status_code=404, detail="App not found")
+
+    app_name = apps[app_id].get("displayName", app_id)
+    del apps[app_id]
+    save_custom_apps(apps)
+
+    logger.info(f"Deleted custom app: {app_id} ({app_name})")
+    return {"message": "App deleted successfully"}
 
 
 @app.get("/api/files")

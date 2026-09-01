@@ -3,6 +3,8 @@ import { AppDrawer } from './components/AppDrawer';
 import { HomeScreen } from './screens/HomeScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { AddAppModal } from './screens/AddAppModal';
+import { fetchCustomApps, addCustomApp, type CustomApp } from './lib/api';
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString([], {
@@ -30,6 +32,8 @@ export default function App() {
   const [time, setTime] = useState(() => formatTime(new Date()));
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [screenView, setScreenView] = useState<ScreenView>('home');
+  const [customApps, setCustomApps] = useState<CustomApp[]>([]);
+  const [showAddAppModal, setShowAddAppModal] = useState(false);
   const gestureRef = useRef<GestureState | null>(null);
   const suppressClicksUntilRef = useRef(0);
 
@@ -50,6 +54,10 @@ export default function App() {
     return () => {
       unsubscribe?.();
     };
+  }, []);
+
+  useEffect(() => {
+    void fetchCustomApps().then(setCustomApps).catch(() => setCustomApps([]));
   }, []);
 
   function openDrawer() {
@@ -90,6 +98,22 @@ export default function App() {
   function openRitePath() {
     void window.ritepath?.openGoogle('https://ritepath.app/');
     closeDrawer();
+  }
+
+  function openCustomApp(url: string) {
+    void window.ritepath?.openGoogle(url);
+    closeDrawer();
+  }
+
+  async function handleAddApp(app: { url: string; logo: string; backgroundColor: string }) {
+    try {
+      const newApp = await addCustomApp(app);
+      setCustomApps([...customApps, newApp]);
+      setShowAddAppModal(false);
+    } catch (error) {
+      console.error('Failed to add app:', error);
+      throw error;
+    }
   }
 
   function handlePointerDownCapture(event: PointerEvent<HTMLElement>) {
@@ -195,6 +219,9 @@ export default function App() {
             onSettingsClick={openSettings}
             onFilesClick={openFiles}
             onRitePathClick={openRitePath}
+            customApps={customApps}
+            onCustomAppClick={openCustomApp}
+            onAddAppClick={() => setShowAddAppModal(true)}
           />
         ) : null}
 
@@ -213,6 +240,10 @@ export default function App() {
           onSettingsClick={openSettings}
           onFilesClick={openFiles}
         />
+      ) : null}
+
+      {showAddAppModal ? (
+        <AddAppModal onClose={() => setShowAddAppModal(false)} onAdd={handleAddApp} />
       ) : null}
     </main>
   );
