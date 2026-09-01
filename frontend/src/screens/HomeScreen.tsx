@@ -80,7 +80,8 @@ export function HomeScreen({
             label={app.displayName}
             accent="blue"
             ariaLabel={`${app.displayName} app`}
-            icon={app.logo}
+            icon="text"
+            textIcon={app.displayName}
             onClick={() => onCustomAppClick(app.url)}
             customColor={app.backgroundColor}
           />

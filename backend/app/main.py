@@ -50,14 +50,12 @@ class WifiConnectPayload(BaseModel):
 
 class CustomAppPayload(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
-    logo: str = Field(max_length=10*1024*1024)  # 10MB max for base64 image
     backgroundColor: str = Field(min_length=7, max_length=7)  # #RRGGBB
 
 
 class CustomApp(BaseModel):
     id: str
     url: str
-    logo: str
     backgroundColor: str
     displayName: str
 
@@ -633,10 +631,6 @@ def create_custom_app(payload: CustomAppPayload) -> dict[str, Any]:
         if not payload.backgroundColor.startswith("#") or len(payload.backgroundColor) != 7:
             raise HTTPException(status_code=400, detail="Invalid color format")
 
-        # Validate logo is not too large (base64 should be reasonable)
-        if len(payload.logo) > 5 * 1024 * 1024:  # 5MB limit for base64
-            raise HTTPException(status_code=400, detail="Image data is too large")
-
         # Generate app ID and display name
         app_id = hashlib.md5(payload.url.encode()).hexdigest()[:12]
         display_name = get_domain_name(payload.url)
@@ -653,7 +647,6 @@ def create_custom_app(payload: CustomAppPayload) -> dict[str, Any]:
         new_app = {
             "id": app_id,
             "url": payload.url,
-            "logo": payload.logo,
             "backgroundColor": payload.backgroundColor,
             "displayName": display_name,
         }

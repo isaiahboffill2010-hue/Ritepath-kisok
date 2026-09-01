@@ -58,7 +58,6 @@ export type SystemStatus = {
 export type CustomApp = {
   id: string;
   url: string;
-  logo: string;
   backgroundColor: string;
   displayName: string;
 };
@@ -166,7 +165,7 @@ export async function fetchCustomApps() {
   return response.apps;
 }
 
-export async function addCustomApp(app: { url: string; logo: string; backgroundColor: string }) {
+export async function addCustomApp(app: { url: string; backgroundColor: string }) {
   return requestJson<CustomApp>('/api/custom-apps', {
     method: 'POST',
     body: JSON.stringify(app),

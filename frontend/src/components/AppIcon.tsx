@@ -6,11 +6,13 @@ type AppIconProps = {
   variant?: 'home' | 'drawer';
   onClick: () => void;
   customColor?: string;
+  textIcon?: string;
 };
 
-export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onClick, customColor }: AppIconProps) {
+export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onClick, customColor, textIcon }: AppIconProps) {
   const isImageIcon = icon.startsWith('/') || icon.includes('.');
-  const iconClass = isImageIcon ? 'image' : icon;
+  const isTextIcon = textIcon !== undefined;
+  const iconClass = isTextIcon ? 'text' : isImageIcon ? 'image' : icon;
 
   return (
     <button
@@ -32,7 +34,8 @@ export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onCl
             <path d="M4.5 5.75A2.25 2.25 0 0 1 6.75 3.5h4.46c.6 0 1.17.24 1.59.66l1.54 1.59c.41.42.98.66 1.57.66h1.34A2.25 2.25 0 0 1 19.5 8.67v8.58a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 17.25V5.75Zm2.5 2.25v8.5h10V8H15.9a3.2 3.2 0 0 1-2.24-.92l-1.1-1.08H6.75a.25.25 0 0 0-.25.25Z" />
           </svg>
         )}
-        {isImageIcon && (
+        {isTextIcon && <span className="text-icon">{textIcon}</span>}
+        {isImageIcon && !isTextIcon && (
           <img
             src={icon}
             alt=""

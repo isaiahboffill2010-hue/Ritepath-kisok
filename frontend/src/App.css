@@ -289,6 +289,26 @@ button {
   padding: 6px;
 }
 
+.app-icon-badge--text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: lowercase;
+  padding: 4px 8px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.text-icon {
+  display: block;
+  max-width: 100%;
+  word-break: break-word;
+}
+
 .app-icon-label {
   font-size: 0.98rem;
   font-weight: 600;

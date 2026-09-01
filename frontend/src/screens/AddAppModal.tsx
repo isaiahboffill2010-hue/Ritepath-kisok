@@ -1,17 +1,15 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 
 type AddAppModalProps = {
   onClose: () => void;
-  onAdd: (app: { url: string; logo: string; backgroundColor: string }) => Promise<void>;
+  onAdd: (app: { url: string; backgroundColor: string }) => Promise<void>;
 };
 
 export function AddAppModal({ onClose, onAdd }: AddAppModalProps) {
   const [url, setUrl] = useState('');
-  const [logo, setLogo] = useState<string | null>(null);
   const [backgroundColor, setBackgroundColor] = useState('#6366f1');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function validateUrl(urlString: string): boolean {
     if (!urlString.trim()) {
@@ -41,38 +39,9 @@ export function AddAppModal({ onClose, onAdd }: AddAppModalProps) {
     }
   }
 
-  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      setError('Only PNG, JPG, or WebP images are supported');
-      return;
-    }
-
-    // Validate file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Image must be smaller than 2MB');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setLogo(e.target?.result as string);
-      setError(null);
-    };
-    reader.readAsDataURL(file);
-  }
 
   async function handleSubmit() {
     if (!validateUrl(url)) {
-      return;
-    }
-
-    if (!logo) {
-      setError('Please upload a logo');
       return;
     }
 
@@ -82,7 +51,6 @@ export function AddAppModal({ onClose, onAdd }: AddAppModalProps) {
     try {
       await onAdd({
         url: new URL(url).toString(),
-        logo,
         backgroundColor
       });
       onClose();
@@ -117,42 +85,6 @@ export function AddAppModal({ onClose, onAdd }: AddAppModalProps) {
               }}
               className="form-input"
             />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="logo">App Logo</label>
-            <div className="logo-upload">
-              {logo ? (
-                <div className="logo-preview">
-                  <img src={logo} alt="Logo preview" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLogo(null);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                    className="logo-remove"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="logo-upload-button"
-                >
-                  Upload Logo
-                </button>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={handleFileSelect}
-                style={{ display: 'none' }}
-              />
-            </div>
           </div>
 
           <div className="form-group">

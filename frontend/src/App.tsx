@@ -105,7 +105,7 @@ export default function App() {
     closeDrawer();
   }
 
-  async function handleAddApp(app: { url: string; logo: string; backgroundColor: string }) {
+  async function handleAddApp(app: { url: string; backgroundColor: string }) {
     try {
       const newApp = await addCustomApp(app);
       setCustomApps([...customApps, newApp]);
