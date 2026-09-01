@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 import hashlib
 import platform
@@ -16,6 +17,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("ritepath")
 
 APP_START = time.time()
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -105,48 +108,122 @@ def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def get_volume() -> dict[str, Any]:
-    if shutil.which("pactl"):
-        result = run_command(["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
-        if result.returncode == 0:
-            match = re.search(r"(\d+)%", result.stdout)
-            volume = int(match.group(1)) if match else 50
-            muted = "yes" in result.stdout.lower()
-            return {"volume": volume, "muted": muted}
+    try:
+        if shutil.which("pactl"):
+            result = run_command(["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
+            if result.returncode == 0:
+                match = re.search(r"(\d+)%", result.stdout)
+                volume = int(match.group(1)) if match else 50
+                muted = "yes" in result.stdout.lower()
+                logger.debug(f"Volume from pactl: {volume}%, muted: {muted}")
+                return {"volume": volume, "muted": muted}
+            else:
+                logger.warning(f"pactl failed: {result.stderr}")
 
-    if shutil.which("amixer"):
-        result = run_command(["amixer", "get", "Master"])
-        if result.returncode == 0:
-            matches = re.findall(r"\[(\d+)%\].*\[(on|off)\]", result.stdout, re.IGNORECASE)
-            if matches:
-                volume, mute_state = matches[-1]
-                return {"volume": int(volume), "muted": mute_state.lower() == "off"}
+        if shutil.which("wpctl"):
+            result = run_command(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
+            if result.returncode == 0:
+                match = re.search(r"Volume:\s+([\d.]+)", result.stdout)
+                if match:
+                    volume = int(float(match.group(1)) * 100)
+                    muted = "[MUTED]" in result.stdout
+                    logger.debug(f"Volume from wpctl: {volume}%, muted: {muted}")
+                    return {"volume": volume, "muted": muted}
+            else:
+                logger.warning(f"wpctl failed: {result.stderr}")
 
-    return {"volume": 50, "muted": False}
+        if shutil.which("amixer"):
+            result = run_command(["amixer", "get", "Master"])
+            if result.returncode == 0:
+                matches = re.findall(r"\[(\d+)%\].*\[(on|off)\]", result.stdout, re.IGNORECASE)
+                if matches:
+                    volume, mute_state = matches[-1]
+                    muted = mute_state.lower() == "off"
+                    logger.debug(f"Volume from amixer: {volume}%, muted: {muted}")
+                    return {"volume": int(volume), "muted": muted}
+            else:
+                logger.warning(f"amixer failed: {result.stderr}")
+
+        logger.error("No audio control available (pactl/wpctl/amixer not found)")
+        raise HTTPException(status_code=503, detail="Audio control unavailable")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading volume: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read volume")
 
 
 def set_volume_value(volume: int) -> dict[str, Any]:
-    if shutil.which("pactl"):
-        run_command(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{volume}%"])
-    elif shutil.which("amixer"):
-        run_command(["amixer", "-q", "set", "Master", f"{volume}%"])
-    return get_volume()
+    try:
+        success = False
+
+        if shutil.which("pactl"):
+            result = run_command(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{volume}%"])
+            if result.returncode == 0:
+                logger.info(f"Set volume to {volume}% via pactl")
+                success = True
+            else:
+                logger.warning(f"pactl set-sink-volume failed: {result.stderr}")
+
+        elif shutil.which("wpctl"):
+            vol_fraction = volume / 100.0
+            result = run_command(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", str(vol_fraction)])
+            if result.returncode == 0:
+                logger.info(f"Set volume to {volume}% via wpctl")
+                success = True
+            else:
+                logger.warning(f"wpctl set-volume failed: {result.stderr}")
+
+        elif shutil.which("amixer"):
+            result = run_command(["amixer", "-q", "set", "Master", f"{volume}%"])
+            if result.returncode == 0:
+                logger.info(f"Set volume to {volume}% via amixer")
+                success = True
+            else:
+                logger.warning(f"amixer set failed: {result.stderr}")
+        else:
+            logger.error("No audio control available for setting volume")
+            raise HTTPException(status_code=503, detail="Audio control unavailable")
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to set volume")
+
+        return get_volume()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting volume: {e}")
+        raise HTTPException(status_code=500, detail="Failed to set volume")
 
 
 def get_wifi_info() -> dict[str, Any]:
-    available = shutil.which("nmcli") is not None
     response: dict[str, Any] = {
         "connected": False,
         "ssid": None,
         "ip_address": None,
         "signal": None,
         "networks": [],
-        "available": available,
+        "available": False,
         "error": None,
     }
 
-    if not available:
-        response["error"] = "nmcli not available"
+    try:
+        if shutil.which("nmcli"):
+            return _get_wifi_nmcli(response)
+        elif shutil.which("iw") or shutil.which("wpa_cli"):
+            return _get_wifi_wpa(response)
+        else:
+            logger.warning("No Wi-Fi management tools available (nmcli, iw, or wpa_cli)")
+            response["error"] = "Wi-Fi service unavailable"
+            return response
+    except Exception as e:
+        logger.error(f"Error reading Wi-Fi info: {e}")
+        response["error"] = "Wi-Fi service unavailable"
         return response
+
+
+def _get_wifi_nmcli(response: dict[str, Any]) -> dict[str, Any]:
+    response["available"] = True
 
     current = run_command(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,DEVICE", "dev", "wifi"])
     if current.returncode == 0:
@@ -158,45 +235,148 @@ def get_wifi_info() -> dict[str, Any]:
             if active == "yes":
                 response["connected"] = True
                 response["ssid"] = ssid or None
-                response["signal"] = int(signal) if signal.isdigit() else None
+                try:
+                    response["signal"] = int(signal) if signal.isdigit() else None
+                except ValueError:
+                    response["signal"] = None
                 break
 
     ip = run_command(["hostname", "-I"])
     if ip.returncode == 0:
-        response["ip_address"] = ip.stdout.strip().split()[0] if ip.stdout.strip() else None
+        ips = ip.stdout.strip().split()
+        response["ip_address"] = ips[0] if ips else None
 
     scan = run_command(["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE", "dev", "wifi", "list"])
     if scan.returncode == 0:
         networks = []
+        seen = set()
         for line in scan.stdout.splitlines():
             parts = line.split(":")
             if len(parts) < 4:
                 continue
             ssid, signal, security, in_use = parts[:4]
-            networks.append(
-                {
-                    "ssid": ssid,
-                    "signal": int(signal) if signal.isdigit() else None,
-                    "security": security or None,
-                    "connected": in_use.strip() == "*",
-                }
-            )
+            if ssid and ssid not in seen:
+                seen.add(ssid)
+                try:
+                    sig_int = int(signal) if signal.isdigit() else None
+                except ValueError:
+                    sig_int = None
+                networks.append(
+                    {
+                        "ssid": ssid,
+                        "signal": sig_int,
+                        "security": security or None,
+                        "connected": in_use.strip() == "*",
+                    }
+                )
         response["networks"] = networks
 
+    logger.debug(f"Wi-Fi status: connected={response['connected']}, ssid={response['ssid']}, networks={len(response['networks'])}")
+    return response
+
+
+def _get_wifi_wpa(response: dict[str, Any]) -> dict[str, Any]:
+    response["available"] = True
+
+    try:
+        ip = run_command(["hostname", "-I"])
+        if ip.returncode == 0:
+            ips = ip.stdout.strip().split()
+            response["ip_address"] = ips[0] if ips else None
+    except Exception:
+        pass
+
+    if shutil.which("wpa_cli"):
+        status = run_command(["wpa_cli", "status"])
+        if status.returncode == 0:
+            for line in status.stdout.splitlines():
+                if line.startswith("ssid="):
+                    response["ssid"] = line.split("=", 1)[1] or None
+                if line.startswith("wpa_state="):
+                    state = line.split("=", 1)[1]
+                    response["connected"] = state == "COMPLETED"
+
+    networks = []
+    if shutil.which("iw"):
+        scan = run_command(["iw", "dev", "wlan0", "link"])
+        if scan.returncode != 0:
+            scan = run_command(["iw", "dev", "wlan1", "link"])
+
+        if scan.returncode == 0 and response["ssid"]:
+            match = re.search(r"signal:\s+(-?\d+)\s+dBm", scan.stdout)
+            if match:
+                try:
+                    dbm = int(match.group(1))
+                    response["signal"] = max(0, min(100, (dbm + 100) * 2))
+                except ValueError:
+                    pass
+
+        scan_result = run_command(["iw", "dev", "wlan0", "scan"])
+        if scan_result.returncode != 0:
+            scan_result = run_command(["iw", "dev", "wlan1", "scan"])
+
+        if scan_result.returncode == 0:
+            for cell in re.finditer(r"SSID:\s+(.+?)(?:\n|$)|signal:\s+(-?\d+)\s+dBm", scan_result.stdout):
+                if cell.group(1):
+                    ssid = cell.group(1).strip()
+                    if ssid and ssid not in [n["ssid"] for n in networks]:
+                        networks.append({"ssid": ssid, "signal": None, "security": None, "connected": False})
+
+    response["networks"] = networks
+    logger.debug(f"Wi-Fi (wpa) status: connected={response['connected']}, ssid={response['ssid']}, networks={len(response['networks'])}")
     return response
 
 
 def connect_wifi_network(ssid: str, password: str) -> dict[str, Any]:
-    if shutil.which("nmcli") is None:
-        raise HTTPException(status_code=503, detail="nmcli not available")
+    logger.info(f"Attempting to connect to Wi-Fi network: {ssid}")
 
-    command = ["nmcli", "dev", "wifi", "connect", ssid]
-    if password:
-        command.extend(["password", password])
-    result = run_command(command)
-    if result.returncode != 0:
-        raise HTTPException(status_code=400, detail=result.stderr.strip() or "Unable to connect to Wi-Fi")
-    return get_wifi_info()
+    if shutil.which("nmcli"):
+        command = ["nmcli", "dev", "wifi", "connect", ssid]
+        if password:
+            command.extend(["password", password])
+
+        result = run_command(command)
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or "Failed to connect to Wi-Fi network"
+            logger.error(f"nmcli connection failed: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        logger.info(f"Successfully connected via nmcli: {ssid}")
+        return get_wifi_info()
+
+    elif shutil.which("wpa_cli"):
+        result = run_command(["wpa_cli", "add_network"])
+        if result.returncode != 0:
+            logger.error(f"wpa_cli add_network failed: {result.stderr}")
+            raise HTTPException(status_code=400, detail="Failed to add Wi-Fi network")
+
+        net_id = result.stdout.strip()
+        if not net_id.isdigit():
+            logger.error(f"wpa_cli add_network returned invalid ID: {net_id}")
+            raise HTTPException(status_code=400, detail="Failed to add Wi-Fi network")
+
+        run_command(["wpa_cli", "set_network", net_id, "ssid", f'"{ssid}"'])
+        if password:
+            run_command(["wpa_cli", "set_network", net_id, "psk", f'"{password}"'])
+        else:
+            run_command(["wpa_cli", "set_network", net_id, "key_mgmt", "NONE"])
+
+        result = run_command(["wpa_cli", "enable_network", net_id])
+        if result.returncode != 0:
+            logger.error(f"wpa_cli enable_network failed: {result.stderr}")
+            run_command(["wpa_cli", "remove_network", net_id])
+            raise HTTPException(status_code=400, detail="Failed to enable Wi-Fi network")
+
+        result = run_command(["wpa_cli", "save_config"])
+        if result.returncode != 0:
+            logger.warning(f"wpa_cli save_config failed: {result.stderr}")
+
+        logger.info(f"Successfully connected via wpa_cli: {ssid}")
+        return get_wifi_info()
+
+    else:
+        logger.error("No Wi-Fi management tools available (nmcli or wpa_cli)")
+        raise HTTPException(status_code=503, detail="Wi-Fi service unavailable")
 
 
 def file_entry(path: Path, root_id: str) -> dict[str, Any]:
@@ -230,6 +410,43 @@ def system_status() -> dict[str, Any]:
         "uptime_seconds": int(time.time() - APP_START),
         "backend_time": datetime.now(timezone.utc).isoformat(),
         "safe_files_root": str(FILES_ROOT),
+    }
+
+
+@app.get("/api/system/diagnostics")
+def system_diagnostics() -> dict[str, Any]:
+    audio_tools = {
+        "pactl": shutil.which("pactl") is not None,
+        "amixer": shutil.which("amixer") is not None,
+        "wpctl": shutil.which("wpctl") is not None,
+    }
+
+    wifi_tools = {
+        "nmcli": shutil.which("nmcli") is not None,
+        "iw": shutil.which("iw") is not None,
+        "iwconfig": shutil.which("iwconfig") is not None,
+        "wpa_cli": shutil.which("wpa_cli") is not None,
+    }
+
+    services = {}
+    for service in ["NetworkManager", "pipewire", "pulseaudio", "alsa-utils"]:
+        check = run_command(["systemctl", "is-active", "--quiet", service])
+        services[service] = check.returncode == 0
+
+    volume_status = get_volume() if audio_tools.get("pactl") or audio_tools.get("amixer") else {"error": "No audio tools available"}
+    wifi_status = get_wifi_info()
+
+    return {
+        "audio": {
+            "tools": audio_tools,
+            "current_volume": volume_status,
+        },
+        "wifi": {
+            "tools": wifi_tools,
+            "current_status": wifi_status,
+        },
+        "services": services,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 

@@ -52,7 +52,11 @@ export function SettingsScreen({ time, onHomeClick }: SettingsScreenProps) {
       }
 
       if (wifiResult.status === 'fulfilled') {
-        setWifi(wifiResult.value);
+        const wifiData = wifiResult.value as WifiResponse;
+        setWifi(wifiData);
+        if (wifiData.error) {
+          setWifiError(wifiData.error);
+        }
       } else if (!isBackendOfflineError(wifiResult.reason)) {
         setWifiError('Unable to read Wi-Fi status.');
       } else {
