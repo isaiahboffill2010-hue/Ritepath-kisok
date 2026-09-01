@@ -101,11 +101,8 @@ function ensureGoogleView() {
 
       const deltaX = mouse.x - googleGesture.startX;
       const deltaY = mouse.y - googleGesture.startY;
-      if (deltaY <= -90 && Math.abs(deltaX) <= 60) {
-        event.preventDefault();
-        googleGesture = null;
-        openDrawerFromGoogle();
-      }
+      // Note: Swipe-up no longer closes the web app. User must press Home button.
+      // This prevents accidental closure while scrolling/interacting with web content.
       return;
     }
 
