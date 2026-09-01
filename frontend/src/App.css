@@ -315,6 +315,41 @@ button {
   color: rgba(244, 247, 255, 0.92);
 }
 
+.custom-app-wrapper {
+  position: relative;
+}
+
+.custom-app-delete {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.custom-app-delete:active {
+  transform: scale(0.95);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.custom-app-delete svg {
+  width: 18px;
+  height: 18px;
+  fill: white;
+}
+
 .dock-spacer {
   flex: 1;
 }

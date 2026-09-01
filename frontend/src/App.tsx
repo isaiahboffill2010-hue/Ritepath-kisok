@@ -4,7 +4,7 @@ import { HomeScreen } from './screens/HomeScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { AddAppModal } from './screens/AddAppModal';
-import { fetchCustomApps, addCustomApp, type CustomApp } from './lib/api';
+import { fetchCustomApps, addCustomApp, deleteCustomApp, type CustomApp } from './lib/api';
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString([], {
@@ -116,6 +116,15 @@ export default function App() {
     }
   }
 
+  async function handleDeleteApp(appId: string) {
+    try {
+      await deleteCustomApp(appId);
+      setCustomApps(customApps.filter(app => app.id !== appId));
+    } catch (error) {
+      console.error('Failed to delete app:', error);
+    }
+  }
+
   function handlePointerDownCapture(event: PointerEvent<HTMLElement>) {
     if (screenView !== 'home') {
       return;
@@ -221,6 +230,7 @@ export default function App() {
             onRitePathClick={openRitePath}
             customApps={customApps}
             onCustomAppClick={openCustomApp}
+            onCustomAppDelete={handleDeleteApp}
             onAddAppClick={() => setShowAddAppModal(true)}
           />
         ) : null}

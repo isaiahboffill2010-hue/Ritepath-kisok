@@ -3,7 +3,17 @@
     "allow": [
       "Bash(npm --prefix frontend run build)",
       "Bash(python -m py_compile backend/app/main.py)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl -s http://localhost:8000/api/system/status)",
+      "Bash(pip install *)",
+      "Bash(curl -X POST http://localhost:8000/api/custom-apps -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s http://localhost:8000/api/custom-apps)",
+      "Bash(python -m json.tool)",
+      "Bash(curl -X DELETE http://localhost:8000/api/custom-apps/7e13afdcc8b6)",
+      "Bash(curl -s -X POST http://localhost:8000/api/custom-apps -H 'Content-Type: application/json' -d '{\"url\": \"http://example.com\", \"backgroundColor\": \"#6366f1\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/custom-apps -H 'Content-Type: application/json' -d '{\"url\": \"https://test.com\", \"backgroundColor\": \"red\"}')",
+      "Bash(curl -X DELETE http://localhost:8000/api/custom-apps/fe83e9a94b66)"
     ]
   }
 }

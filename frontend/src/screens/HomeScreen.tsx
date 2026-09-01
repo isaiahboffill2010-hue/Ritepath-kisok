@@ -10,6 +10,7 @@ type HomeScreenProps = {
   onRitePathClick: () => void;
   customApps: CustomApp[];
   onCustomAppClick: (url: string) => void;
+  onCustomAppDelete: (appId: string) => void;
   onAddAppClick: () => void;
 };
 
@@ -21,6 +22,7 @@ export function HomeScreen({
   onRitePathClick,
   customApps,
   onCustomAppClick,
+  onCustomAppDelete,
   onAddAppClick,
 }: HomeScreenProps) {
   return (
@@ -75,16 +77,32 @@ export function HomeScreen({
           onClick={onRitePathClick}
         />
         {customApps.map((app) => (
-          <AppIcon
-            key={app.id}
-            label={app.displayName}
-            accent="blue"
-            ariaLabel={`${app.displayName} app`}
-            icon="text"
-            textIcon={app.displayName}
-            onClick={() => onCustomAppClick(app.url)}
-            customColor={app.backgroundColor}
-          />
+          <div key={app.id} className="custom-app-wrapper">
+            <AppIcon
+              label={app.displayName}
+              accent="blue"
+              ariaLabel={`${app.displayName} app`}
+              icon="text"
+              textIcon={app.displayName}
+              onClick={() => onCustomAppClick(app.url)}
+              customColor={app.backgroundColor}
+            />
+            <button
+              type="button"
+              className="custom-app-delete"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm(`Delete ${app.displayName}?`)) {
+                  onCustomAppDelete(app.id);
+                }
+              }}
+              aria-label={`Delete ${app.displayName} app`}
+            >
+              <svg viewBox="0 0 24 24" role="presentation">
+                <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-9l-1 1H5v2h14V4z" />
+              </svg>
+            </button>
+          </div>
         ))}
       </section>
     </div>
