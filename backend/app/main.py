@@ -430,13 +430,18 @@ def load_custom_apps() -> dict[str, Any]:
 
 def save_custom_apps(apps: dict[str, Any]) -> None:
     """Save custom apps to storage."""
-    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        with open(CUSTOM_APPS_FILE, "w") as f:
+        STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        # Write to temporary file first, then move (atomic operation)
+        temp_file = CUSTOM_APPS_FILE.with_suffix('.json.tmp')
+        with open(temp_file, "w") as f:
             json.dump(apps, f, indent=2)
+        # Replace original file
+        temp_file.replace(CUSTOM_APPS_FILE)
+        logger.info(f"Saved custom apps to {CUSTOM_APPS_FILE}")
     except Exception as e:
-        logger.error(f"Error saving custom apps: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save custom app")
+        logger.error(f"Error saving custom apps: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save app: {str(e)}")
 
 
 def file_entry(path: Path, root_id: str) -> dict[str, Any]:
@@ -543,46 +548,59 @@ def get_custom_apps() -> dict[str, Any]:
 
 @app.post("/api/custom-apps")
 def create_custom_app(payload: CustomAppPayload) -> dict[str, Any]:
-    # Validate URL
     try:
-        parsed = urlparse(payload.url)
-        if parsed.scheme not in ["http", "https"]:
-            raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
-        if parsed.scheme != "https":
-            raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid URL")
+        # Validate URL
+        try:
+            parsed = urlparse(payload.url)
+            if parsed.scheme not in ["http", "https"]:
+                raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
+            if parsed.scheme != "https":
+                raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"URL parse error: {e}")
+            raise HTTPException(status_code=400, detail="Invalid URL")
 
-    # Validate color format
-    if not payload.backgroundColor.startswith("#") or len(payload.backgroundColor) != 7:
-        raise HTTPException(status_code=400, detail="Invalid color format")
+        # Validate color format
+        if not payload.backgroundColor.startswith("#") or len(payload.backgroundColor) != 7:
+            raise HTTPException(status_code=400, detail="Invalid color format")
 
-    # Generate app ID and display name
-    app_id = hashlib.md5(payload.url.encode()).hexdigest()[:12]
-    display_name = get_domain_name(payload.url)
+        # Validate logo is not too large (base64 should be reasonable)
+        if len(payload.logo) > 5 * 1024 * 1024:  # 5MB limit for base64
+            raise HTTPException(status_code=400, detail="Image data is too large")
 
-    # Load existing apps
-    apps = load_custom_apps()
+        # Generate app ID and display name
+        app_id = hashlib.md5(payload.url.encode()).hexdigest()[:12]
+        display_name = get_domain_name(payload.url)
 
-    # Check for duplicates
-    for existing_app in apps.values():
-        if existing_app.get("url") == payload.url:
-            raise HTTPException(status_code=400, detail="This URL is already added")
+        # Load existing apps
+        apps = load_custom_apps()
 
-    # Create new app
-    new_app = {
-        "id": app_id,
-        "url": payload.url,
-        "logo": payload.logo,
-        "backgroundColor": payload.backgroundColor,
-        "displayName": display_name,
-    }
+        # Check for duplicates
+        for existing_app in apps.values():
+            if existing_app.get("url") == payload.url:
+                raise HTTPException(status_code=400, detail="This URL is already added")
 
-    apps[app_id] = new_app
-    save_custom_apps(apps)
+        # Create new app
+        new_app = {
+            "id": app_id,
+            "url": payload.url,
+            "logo": payload.logo,
+            "backgroundColor": payload.backgroundColor,
+            "displayName": display_name,
+        }
 
-    logger.info(f"Created custom app: {app_id} ({display_name}) -> {payload.url}")
-    return new_app
+        apps[app_id] = new_app
+        save_custom_apps(apps)
+
+        logger.info(f"Created custom app: {app_id} ({display_name}) -> {payload.url}")
+        return new_app
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating custom app: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create app: {str(e)}")
 
 
 @app.delete("/api/custom-apps/{app_id}")
