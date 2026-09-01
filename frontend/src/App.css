@@ -276,6 +276,11 @@ button {
   background: linear-gradient(180deg, #67d68d 0%, #2f9a64 100%);
 }
 
+.app-icon-badge--image {
+  background: linear-gradient(180deg, #a78bfa 0%, #7c3aed 100%);
+  padding: 6px;
+}
+
 .app-icon-label {
   font-size: 0.98rem;
   font-weight: 600;
@@ -522,6 +527,67 @@ button {
   color: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
   z-index: 2;
+}
+
+.webapp-fullscreen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}
+
+.webapp-webview {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: auto;
+  border: 0;
+  display: block;
+  background: transparent;
+}
+
+.webapp-home-float {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  min-height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 22, 38, 0.72);
+  color: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  z-index: 2;
+}
+
+.webview-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px;
+  background: linear-gradient(180deg, #0e1d34 0%, #091120 56%, #050910 100%);
+  color: rgba(245, 247, 251, 0.9);
+}
+
+.webview-error p {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.webview-error button {
+  min-height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 22, 38, 0.72);
+  color: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
 }
 
 .settings-card h2 {

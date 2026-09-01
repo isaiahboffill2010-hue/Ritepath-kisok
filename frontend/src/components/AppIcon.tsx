@@ -1,13 +1,16 @@
 type AppIconProps = {
   label: string;
-  accent: 'blue' | 'slate' | 'green';
+  accent: 'blue' | 'slate' | 'green' | 'purple' | 'orange' | 'pink' | 'red' | 'cyan';
   ariaLabel: string;
-  icon: 'google' | 'settings' | 'files';
+  icon: string;
   variant?: 'home' | 'drawer';
   onClick: () => void;
 };
 
 export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onClick }: AppIconProps) {
+  const isImageIcon = icon.startsWith('/') || icon.includes('.');
+  const iconClass = isImageIcon ? 'image' : icon;
+
   return (
     <button
       type="button"
@@ -15,7 +18,7 @@ export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onCl
       aria-label={ariaLabel}
       onClick={onClick}
     >
-      <span className={`app-icon-badge app-icon-badge--${icon}`} aria-hidden="true">
+      <span className={`app-icon-badge app-icon-badge--${iconClass}`} aria-hidden="true">
         {icon === 'google' && <span className="google-letter">G</span>}
         {icon === 'settings' && (
           <svg viewBox="0 0 24 24" role="presentation">
@@ -26,6 +29,13 @@ export function AppIcon({ label, accent, ariaLabel, icon, variant = 'home', onCl
           <svg viewBox="0 0 24 24" role="presentation">
             <path d="M4.5 5.75A2.25 2.25 0 0 1 6.75 3.5h4.46c.6 0 1.17.24 1.59.66l1.54 1.59c.41.42.98.66 1.57.66h1.34A2.25 2.25 0 0 1 19.5 8.67v8.58a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 17.25V5.75Zm2.5 2.25v8.5h10V8H15.9a3.2 3.2 0 0 1-2.24-.92l-1.1-1.08H6.75a.25.25 0 0 0-.25.25Z" />
           </svg>
+        )}
+        {isImageIcon && (
+          <img
+            src={icon}
+            alt=""
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          />
         )}
       </span>
       <span className="app-icon-label">{label}</span>

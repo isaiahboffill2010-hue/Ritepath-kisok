@@ -3,6 +3,7 @@ import { AppDrawer } from './components/AppDrawer';
 import { HomeScreen } from './screens/HomeScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { WebAppScreen } from './screens/WebAppScreen';
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString([], {
@@ -19,7 +20,7 @@ type GestureState = {
   openedOrClosed: boolean;
 };
 
-type ScreenView = 'home' | 'files' | 'settings';
+type ScreenView = 'home' | 'files' | 'settings' | { type: 'webapp'; appId: string };
 
 const SWIPE_THRESHOLD = 90;
 const START_ZONE_HEIGHT = 120;
@@ -79,6 +80,11 @@ export default function App() {
 
   function openSettings() {
     setScreenView('settings');
+    closeDrawer();
+  }
+
+  function openWebApp(appId: string) {
+    setScreenView({ type: 'webapp', appId });
     closeDrawer();
   }
 
@@ -193,12 +199,17 @@ export default function App() {
             onGoogleClick={() => openGoogle()}
             onSettingsClick={openSettings}
             onFilesClick={openFiles}
+            onWebAppClick={openWebApp}
           />
         ) : null}
 
         {screenView === 'files' ? <FilesScreen time={time} onHomeClick={goHome} /> : null}
 
         {screenView === 'settings' ? <SettingsScreen time={time} onHomeClick={goHome} /> : null}
+
+        {typeof screenView === 'object' && screenView.type === 'webapp' ? (
+          <WebAppScreen appId={screenView.appId} onHomeClick={goHome} />
+        ) : null}
 
       </section>
 
