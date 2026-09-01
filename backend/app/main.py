@@ -49,7 +49,7 @@ class WifiConnectPayload(BaseModel):
 
 class CustomAppPayload(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
-    logo: str
+    logo: str = Field(max_length=10*1024*1024)  # 10MB max for base64 image
     backgroundColor: str = Field(min_length=7, max_length=7)  # #RRGGBB
 
 
