@@ -37,6 +37,14 @@ export function HomeScreen({
         <img className="home-logo" src="/Ritepath.png" alt="" />
       </div>
 
+      <div className="home-header">
+        <div></div>
+        <button className="add-app-button-top-right" onClick={onAddAppClick} aria-label="Add your own app">
+          <span className="add-app-icon">+</span>
+          <span className="add-app-label">Add Your Own App</span>
+        </button>
+      </div>
+
       <section className="app-grid" aria-label="Applications">
         <AppIcon
           label="Google"
@@ -78,13 +86,6 @@ export function HomeScreen({
           />
         ))}
       </section>
-
-      <div className="app-add-section">
-        <button className="add-app-button" onClick={onAddAppClick} aria-label="Add your own app">
-          <span className="add-app-icon">+</span>
-          <span className="add-app-label">Add Your Own App</span>
-        </button>
-      </div>
     </div>
   );
 }

@@ -104,6 +104,14 @@ button {
   display: flex;
   flex-direction: column;
   gap: clamp(14px, 2.4vh, 26px);
+  position: relative;
+}
+
+.home-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding-top: clamp(6px, 1vh, 12px);
 }
 
 .kiosk-content--app {
@@ -761,54 +769,50 @@ button {
   white-space: pre-wrap;
 }
 
-.app-add-section {
-  display: flex;
-  justify-content: center;
-  padding: clamp(10px, 1.5vh, 16px) 0 clamp(8px, 1vh, 12px);
-}
-
-.add-app-button {
+.add-app-button-top-right {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 120px;
-  min-height: 120px;
+  gap: 6px;
+  width: auto;
+  max-width: 90px;
+  min-height: 90px;
   border: 2px dashed rgba(255, 255, 255, 0.3);
   background: transparent;
   color: rgba(245, 247, 251, 0.8);
-  padding: 12px 8px;
-  border-radius: 24px;
+  padding: 10px 8px;
+  border-radius: 20px;
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   transition: all 140ms ease;
   touch-action: manipulation;
 }
 
-.add-app-button:active {
+.add-app-button-top-right:active {
   transform: scale(0.97);
 }
 
-.add-app-button:focus-visible {
+.add-app-button-top-right:focus-visible {
   outline: 3px solid rgba(111, 187, 255, 0.95);
   outline-offset: 3px;
 }
 
-.add-app-icon {
+.add-app-button-top-right .add-app-icon {
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
   background: rgba(99, 102, 241, 0.2);
-  font-size: 2rem;
+  font-size: 1.5rem;
   font-weight: 300;
 }
 
-.add-app-label {
+.add-app-button-top-right .add-app-label {
   text-align: center;
-  line-height: 1.3;
+  line-height: 1.2;
+  max-width: 80px;
+  word-break: break-word;
 }
 
 .modal-overlay {
