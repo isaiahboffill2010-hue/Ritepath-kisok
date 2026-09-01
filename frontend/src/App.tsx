@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { AppDrawer } from './components/AppDrawer';
+import { AnimatedBackground } from './components/AnimatedBackground';
 import { HomeScreen } from './screens/HomeScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -215,6 +216,7 @@ export default function App() {
       onPointerCancelCapture={handlePointerCancelCapture}
       onClickCapture={handleClickCapture}
     >
+      <AnimatedBackground />
       <div className="kiosk-backdrop" aria-hidden="true" />
 
       <section

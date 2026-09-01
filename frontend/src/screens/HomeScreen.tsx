@@ -1,6 +1,5 @@
 import { StatusBar } from '../components/StatusBar';
 import { AppIcon } from '../components/AppIcon';
-import { AnimatedBackground } from '../components/AnimatedBackground';
 import { type CustomApp } from '../lib/api';
 
 type HomeScreenProps = {
@@ -27,9 +26,7 @@ export function HomeScreen({
   onAddAppClick,
 }: HomeScreenProps) {
   return (
-    <>
-      <AnimatedBackground />
-      <div className="kiosk-content home-content-animated">
+    <div className="kiosk-content home-content-animated">
       <StatusBar time={time} />
 
       <div className="hero-copy">
@@ -109,6 +106,5 @@ export function HomeScreen({
         ))}
       </section>
     </div>
-    </>
   );
 }

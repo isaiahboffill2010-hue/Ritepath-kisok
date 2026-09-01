@@ -60,6 +60,7 @@ button {
     radial-gradient(circle at 20% 80%, rgba(46, 174, 255, 0.2), transparent 26%),
     radial-gradient(circle at 80% 78%, rgba(61, 255, 196, 0.12), transparent 22%);
   pointer-events: none;
+  z-index: 1;
 }
 
 .kiosk-shell--google .kiosk-backdrop {
@@ -85,6 +86,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: clamp(14px, 2.4vh, 26px);
+  z-index: 2;
 }
 
 .kiosk-screen--google {
