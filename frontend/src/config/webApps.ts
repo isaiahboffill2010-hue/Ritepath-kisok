@@ -10,7 +10,7 @@ export const webApps: WebApp[] = [
     id: "ritepath",
     name: "RitePath",
     icon: "/Ritepath.png",
-    url: "https://ritepath.com"
+    url: "https://ritepath.app/"
   }
 ];
 
