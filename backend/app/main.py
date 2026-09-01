@@ -28,14 +28,15 @@ FILES_ROOT = (BASE_DIR / "storage" / "ritepath").resolve()
 STORAGE_DIR = (BASE_DIR / "storage").resolve()
 CUSTOM_APPS_FILE = (STORAGE_DIR / "custom_apps.json").resolve()
 
-app = FastAPI(title="RitePath Kiosk API", version="3.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def ensure_storage_dir() -> None:
+    """Ensure storage directory exists at startup."""
+    try:
+        STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Storage directory ready: {STORAGE_DIR}")
+    except Exception as e:
+        logger.error(f"Failed to create storage directory {STORAGE_DIR}: {e}")
+        # Continue anyway, will fail when trying to save
 
 
 class VolumePayload(BaseModel):
@@ -59,6 +60,19 @@ class CustomApp(BaseModel):
     logo: str
     backgroundColor: str
     displayName: str
+
+
+app = FastAPI(title="RitePath Kiosk API", version="3.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize storage directories at startup
+ensure_storage_dir()
 
 
 def ensure_files_root() -> None:
