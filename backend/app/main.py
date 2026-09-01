@@ -431,16 +431,45 @@ def load_custom_apps() -> dict[str, Any]:
 def save_custom_apps(apps: dict[str, Any]) -> None:
     """Save custom apps to storage."""
     try:
-        STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-        # Write to temporary file first, then move (atomic operation)
+        # Ensure storage directory exists
+        try:
+            STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            logger.error(f"Permission denied creating storage directory {STORAGE_DIR}: {e}")
+            raise HTTPException(status_code=500, detail="Storage directory permission denied")
+        except Exception as e:
+            logger.error(f"Failed to create storage directory {STORAGE_DIR}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to create storage directory")
+
+        # Write to temporary file first for atomicity
         temp_file = CUSTOM_APPS_FILE.with_suffix('.json.tmp')
-        with open(temp_file, "w") as f:
-            json.dump(apps, f, indent=2)
-        # Replace original file
-        temp_file.replace(CUSTOM_APPS_FILE)
+        try:
+            with open(temp_file, "w") as f:
+                json.dump(apps, f, indent=2)
+        except PermissionError as e:
+            logger.error(f"Permission denied writing to {temp_file}: {e}")
+            raise HTTPException(status_code=500, detail="Storage write permission denied")
+        except Exception as e:
+            logger.error(f"Failed to write to {temp_file}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to write storage file: {str(e)}")
+
+        # Atomically replace original file
+        try:
+            temp_file.replace(CUSTOM_APPS_FILE)
+        except Exception as e:
+            logger.error(f"Failed to move {temp_file} to {CUSTOM_APPS_FILE}: {e}")
+            # Attempt cleanup
+            try:
+                temp_file.unlink()
+            except:
+                pass
+            raise HTTPException(status_code=500, detail="Failed to finalize storage file")
+
         logger.info(f"Saved custom apps to {CUSTOM_APPS_FILE}")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error saving custom apps: {e}", exc_info=True)
+        logger.error(f"Unexpected error saving custom apps: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to save app: {str(e)}")
 
 
@@ -544,6 +573,30 @@ def wifi_connect(payload: WifiConnectPayload) -> dict[str, Any]:
 def get_custom_apps() -> dict[str, Any]:
     apps = load_custom_apps()
     return {"apps": list(apps.values())}
+
+
+@app.get("/api/storage/health")
+def storage_health() -> dict[str, Any]:
+    """Health check endpoint to verify storage is working."""
+    health = {
+        "storage_dir_exists": STORAGE_DIR.exists(),
+        "storage_dir_writable": False,
+        "custom_apps_file_exists": CUSTOM_APPS_FILE.exists(),
+        "storage_dir_path": str(STORAGE_DIR),
+        "base_dir_path": str(BASE_DIR),
+    }
+
+    # Test write capability
+    test_file = STORAGE_DIR / ".health_check"
+    try:
+        test_file.write_text("ok")
+        health["storage_dir_writable"] = True
+        test_file.unlink()
+    except Exception as e:
+        health["storage_write_error"] = str(e)
+        logger.warning(f"Storage write test failed: {e}")
+
+    return health
 
 
 @app.post("/api/custom-apps")
