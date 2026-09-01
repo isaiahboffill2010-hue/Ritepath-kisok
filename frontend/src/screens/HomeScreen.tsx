@@ -1,16 +1,15 @@
 import { StatusBar } from '../components/StatusBar';
 import { AppIcon } from '../components/AppIcon';
-import { webApps } from '../config/webApps';
 
 type HomeScreenProps = {
   time: string;
   onGoogleClick: () => void;
   onSettingsClick: () => void;
   onFilesClick: () => void;
-  onWebAppClick: (appId: string) => void;
+  onRitePathClick: () => void;
 };
 
-export function HomeScreen({ time, onGoogleClick, onSettingsClick, onFilesClick, onWebAppClick }: HomeScreenProps) {
+export function HomeScreen({ time, onGoogleClick, onSettingsClick, onFilesClick, onRitePathClick }: HomeScreenProps) {
   return (
     <div className="kiosk-content">
       <StatusBar time={time} />
@@ -47,16 +46,13 @@ export function HomeScreen({ time, onGoogleClick, onSettingsClick, onFilesClick,
           icon="files"
           onClick={onFilesClick}
         />
-        {webApps.map(app => (
-          <AppIcon
-            key={app.id}
-            label={app.name}
-            accent="purple"
-            ariaLabel={`${app.name} app`}
-            icon={app.icon}
-            onClick={() => onWebAppClick(app.id)}
-          />
-        ))}
+        <AppIcon
+          label="RitePath"
+          accent="purple"
+          ariaLabel="RitePath app"
+          icon="/Ritepath.png"
+          onClick={onRitePathClick}
+        />
       </section>
     </div>
   );

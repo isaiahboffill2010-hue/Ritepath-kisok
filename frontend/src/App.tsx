@@ -3,7 +3,6 @@ import { AppDrawer } from './components/AppDrawer';
 import { HomeScreen } from './screens/HomeScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
-import { WebAppScreen } from './screens/WebAppScreen';
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString([], {
@@ -20,7 +19,7 @@ type GestureState = {
   openedOrClosed: boolean;
 };
 
-type ScreenView = 'home' | 'files' | 'settings' | { type: 'webapp'; appId: string };
+type ScreenView = 'home' | 'files' | 'settings';
 
 const SWIPE_THRESHOLD = 90;
 const START_ZONE_HEIGHT = 120;
@@ -83,18 +82,14 @@ export default function App() {
     closeDrawer();
   }
 
-  function openWebApp(appId: string) {
-    setScreenView({ type: 'webapp', appId });
-    closeDrawer();
-  }
-
   function openGoogle(url = 'https://www.google.com/') {
     void window.ritepath?.openGoogle(url);
     closeDrawer();
   }
 
-  function handleAppClick(message: string) {
-    console.log(message);
+  function openRitePath() {
+    void window.ritepath?.openGoogle('https://ritepath.app/');
+    closeDrawer();
   }
 
   function handlePointerDownCapture(event: PointerEvent<HTMLElement>) {
@@ -199,17 +194,13 @@ export default function App() {
             onGoogleClick={() => openGoogle()}
             onSettingsClick={openSettings}
             onFilesClick={openFiles}
-            onWebAppClick={openWebApp}
+            onRitePathClick={openRitePath}
           />
         ) : null}
 
         {screenView === 'files' ? <FilesScreen time={time} onHomeClick={goHome} /> : null}
 
         {screenView === 'settings' ? <SettingsScreen time={time} onHomeClick={goHome} /> : null}
-
-        {typeof screenView === 'object' && screenView.type === 'webapp' ? (
-          <WebAppScreen appId={screenView.appId} onHomeClick={goHome} />
-        ) : null}
 
       </section>
 
