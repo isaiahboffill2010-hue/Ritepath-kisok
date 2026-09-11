@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import '../styles/AnimatedBackground.css';
 
 interface Particle {
@@ -19,6 +19,13 @@ interface Connection {
   age: number;
 }
 
+interface Ripple {
+  x: number;
+  y: number;
+  age: number;
+  maxAge: number;
+}
+
 const PARTICLE_COUNT = 40;
 const CONNECTION_DISTANCE = 180;
 const RESPECTS_REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -28,8 +35,7 @@ export function AnimatedBackground() {
   const particlesRef = useRef<Particle[]>([]);
   const connectionsRef = useRef<Connection[]>([]);
   const animationIdRef = useRef<number>();
-  const [ripples, setRipples] = useState<Array<{ x: number; y: number; age: number; maxAge: number }>>([]);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const ripplesRef = useRef<Ripple[]>([]);
 
   // Initialize particles
   useEffect(() => {
@@ -72,7 +78,7 @@ export function AnimatedBackground() {
       const connections = connectionsRef.current;
 
       // Update and draw particles
-      particles.forEach((p, i) => {
+      particles.forEach((p) => {
         // Update position
         p.x += p.vx;
         p.y += p.vy;
@@ -150,26 +156,24 @@ export function AnimatedBackground() {
         ctx.stroke();
       });
 
-      // Draw ripples
-      setRipples((prevRipples) =>
-        prevRipples
-          .map((ripple) => ({
-            ...ripple,
-            age: ripple.age + 1,
-          }))
-          .filter((ripple) => ripple.age < ripple.maxAge)
-          .forEach((ripple) => {
-            const progress = ripple.age / ripple.maxAge;
-            const radius = progress * 200;
-            const opacity = (1 - progress) * 0.4;
+      // Advance and draw ripples
+      ripplesRef.current = ripplesRef.current.filter((ripple) => {
+        ripple.age += 1;
+        if (ripple.age >= ripple.maxAge) {
+          return false;
+        }
 
-            ctx.strokeStyle = `rgba(100, 180, 255, ${opacity})`;
-            ctx.lineWidth = 2 - progress * 1.5;
-            ctx.beginPath();
-            ctx.arc(ripple.x, ripple.y, radius, 0, Math.PI * 2);
-            ctx.stroke();
-          })
-      );
+        const progress = ripple.age / ripple.maxAge;
+        const radius = progress * 200;
+        const opacity = (1 - progress) * 0.4;
+
+        ctx.strokeStyle = `rgba(100, 180, 255, ${opacity})`;
+        ctx.lineWidth = 2 - progress * 1.5;
+        ctx.beginPath();
+        ctx.arc(ripple.x, ripple.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        return true;
+      });
 
       animationIdRef.current = requestAnimationFrame(animate);
     };
@@ -209,18 +213,7 @@ export function AnimatedBackground() {
       return;
     }
 
-    setRipples((prev) => [
-      ...prev,
-      {
-        x,
-        y,
-        age: 0,
-        maxAge: 40,
-      },
-    ]);
-
-    // Update mouse position for parallax
-    setMousePos({ x, y });
+    ripplesRef.current.push({ x, y, age: 0, maxAge: 40 });
   };
 
   // Data stream effect (CSS-based, no Canvas needed)
@@ -242,7 +235,6 @@ export function AnimatedBackground() {
         className="bg-canvas"
         onClick={handleInteraction}
         onTouchStart={handleInteraction}
-        onMouseMove={handleInteraction}
       />
 
       {/* Layer 4: Data streams */}

@@ -13,7 +13,8 @@
       "Bash(curl -X DELETE http://localhost:8000/api/custom-apps/7e13afdcc8b6)",
       "Bash(curl -s -X POST http://localhost:8000/api/custom-apps -H 'Content-Type: application/json' -d '{\"url\": \"http://example.com\", \"backgroundColor\": \"#6366f1\"}')",
       "Bash(curl -s -X POST http://localhost:8000/api/custom-apps -H 'Content-Type: application/json' -d '{\"url\": \"https://test.com\", \"backgroundColor\": \"red\"}')",
-      "Bash(curl -X DELETE http://localhost:8000/api/custom-apps/fe83e9a94b66)"
+      "Bash(curl -X DELETE http://localhost:8000/api/custom-apps/fe83e9a94b66)",
+      "Bash(echo \"=== exit:$? ===\")"
     ]
   }
 }

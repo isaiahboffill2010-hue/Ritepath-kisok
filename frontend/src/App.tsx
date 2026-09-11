@@ -47,6 +47,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const unsubscribe = window.ritepath?.onGoHome(() => {
+      setScreenView('home');
+      setIsDrawerOpen(false);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = window.ritepath?.onOpenDrawer(() => {
       setScreenView('home');
       setIsDrawerOpen(true);

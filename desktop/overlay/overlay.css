@@ -1,0 +1,676 @@
+/* RitePath Dynamic Island + floating weather widget.
+   Rendered inside a transparent overlay BrowserView that floats above the
+   launcher and above any opened web app.
+
+   Performance note: this runs on a Raspberry Pi, so animations are limited to
+   opacity/transform (plus one small width/height tween on the pill itself) and
+   backdrop-filter is deliberately avoided - a separate compositing layer cannot
+   sample the page underneath anyway, so it would cost GPU time for no effect. */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: #f6f9ff;
+}
+
+/* ---------- Dynamic Island ---------- */
+
+.island {
+  position: absolute;
+  /* The pill is centred inside its view and the view is centred on the screen,
+     so the pill stays locked to the top centre even while the view resizes. */
+  left: 50%;
+  top: 26px;
+  transform: translateX(-50%);
+  width: 152px;
+  height: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: rgba(8, 10, 16, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  transition:
+    width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-radius 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: width, height;
+  cursor: pointer;
+}
+
+.island.is-expanded {
+  width: 268px;
+  height: 96px;
+  border-radius: 26px;
+}
+
+.island-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  flex: 0 0 auto;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+.island-icon {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  display: none;
+}
+
+.island-icon.is-visible {
+  display: block;
+}
+
+.island-icon.is-visible + .island-emoji {
+  display: none;
+}
+
+.island-emoji {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.island-temp {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.island-menu {
+  width: 100%;
+  padding: 2px 10px 10px;
+  box-sizing: border-box;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+
+.island.is-expanded .island-menu {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.island-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.07);
+  color: inherit;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.island-option:active {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.island-option-icon {
+  font-size: 1.1rem;
+}
+
+.island-option-label {
+  flex: 1;
+  text-align: left;
+}
+
+.island-option-chevron {
+  opacity: 0.55;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+/* ---------- Floating weather window ---------- */
+
+.weather-window {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  overflow: visible;
+  /* Position is driven by a transform (see weather.js) so dragging never causes
+     layout or a repaint of the transparent overlay layer. The open/close
+     animation lives on .weather-surface so the two never fight. */
+  transform: translate3d(26px, 26px, 0);
+  will-change: transform;
+}
+
+.weather-surface {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 26px;
+  background: rgba(12, 16, 26, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Drives the responsive layout below: the content reacts to the widget's own
+     size rather than to the screen, which matters because the overlay view is
+     temporarily grown to full screen while dragging or resizing. */
+  container-type: size;
+  container-name: weatherwin;
+}
+
+.weather-window.is-open .weather-surface {
+  opacity: 1;
+  transform: none;
+}
+
+.weather-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: grab;
+  touch-action: none;
+  flex: 0 0 auto;
+}
+
+.weather-header.is-dragging {
+  cursor: grabbing;
+}
+
+.weather-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.weather-place {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weather-updated {
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  color: rgba(226, 234, 250, 0.55);
+}
+
+.weather-grip {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 42px;
+  height: 4px;
+  margin-left: -21px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.weather-close {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(246, 249, 255, 0.9);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.weather-close:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.weather-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 18px 20px;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.weather-now {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.weather-now-icon {
+  width: 62px;
+  height: 62px;
+  object-fit: contain;
+}
+
+.weather-now-emoji {
+  font-size: 2.6rem;
+  line-height: 1;
+}
+
+.weather-now-temp {
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-now-condition {
+  margin: 4px 0 0;
+  font-size: 0.92rem;
+  color: rgba(226, 234, 250, 0.78);
+}
+
+.weather-now-range {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: rgba(226, 234, 250, 0.55);
+}
+
+.weather-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.weather-stat {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.weather-stat-label {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(226, 234, 250, 0.45);
+}
+
+.weather-stat-value {
+  margin: 3px 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.weather-section-title {
+  margin: 20px 0 8px;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(226, 234, 250, 0.45);
+}
+
+.weather-hourly {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 6px;
+  touch-action: pan-x;
+  scrollbar-width: none;
+}
+
+.weather-hourly::-webkit-scrollbar {
+  display: none;
+}
+
+.weather-hour {
+  flex: 0 0 auto;
+  width: 64px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px 6px;
+  text-align: center;
+}
+
+.weather-hour-time {
+  margin: 0;
+  font-size: 0.7rem;
+  color: rgba(226, 234, 250, 0.6);
+}
+
+.weather-hour-icon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  margin: 4px auto 2px;
+  display: block;
+}
+
+.weather-hour-emoji {
+  display: block;
+  font-size: 1.2rem;
+  margin: 4px 0 2px;
+}
+
+.weather-hour-temp {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-hour-rain {
+  margin: 2px 0 0;
+  font-size: 0.68rem;
+  color: #7cc4ff;
+}
+
+.weather-day {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.weather-day:first-of-type {
+  border-top: 0;
+}
+
+.weather-day-name {
+  width: 54px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.weather-day-icon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.weather-day-emoji {
+  font-size: 1.15rem;
+  width: 30px;
+  text-align: center;
+}
+
+.weather-day-condition {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: rgba(226, 234, 250, 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weather-day-rain {
+  font-size: 0.72rem;
+  color: #7cc4ff;
+  width: 38px;
+  text-align: right;
+}
+
+.weather-day-range {
+  width: 74px;
+  text-align: right;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-day-min {
+  color: rgba(226, 234, 250, 0.5);
+}
+
+.weather-empty {
+  padding: 26px 8px;
+  text-align: center;
+}
+
+.weather-empty-emoji {
+  font-size: 2rem;
+}
+
+.weather-empty-title {
+  margin: 10px 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.weather-empty-note {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(226, 234, 250, 0.55);
+  line-height: 1.5;
+}
+
+.weather-stale-note {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 186, 92, 0.12);
+  color: #ffcf8f;
+  font-size: 0.76rem;
+  text-align: center;
+}
+
+/* ---------- resize ---------- */
+
+.resize-handle {
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+  /* Generous touch targets for the Pi: most of each target sits outside the
+     visible frame so it does not steal taps from the content. */
+}
+
+.resize-n,
+.resize-s {
+  left: 20px;
+  right: 20px;
+  height: 28px;
+  cursor: ns-resize;
+}
+
+.resize-n {
+  top: -18px;
+}
+
+.resize-s {
+  bottom: -18px;
+}
+
+.resize-w,
+.resize-e {
+  top: 20px;
+  bottom: 20px;
+  width: 28px;
+  cursor: ew-resize;
+}
+
+.resize-w {
+  left: -18px;
+}
+
+.resize-e {
+  right: -18px;
+}
+
+.resize-nw,
+.resize-ne,
+.resize-sw,
+.resize-se {
+  width: 38px;
+  height: 38px;
+}
+
+.resize-nw {
+  left: -18px;
+  top: -18px;
+  cursor: nwse-resize;
+}
+
+.resize-ne {
+  right: -18px;
+  top: -18px;
+  cursor: nesw-resize;
+}
+
+.resize-sw {
+  left: -18px;
+  bottom: -18px;
+  cursor: nesw-resize;
+}
+
+.resize-se {
+  right: -20px;
+  bottom: -20px;
+  width: 46px;
+  height: 46px;
+  cursor: nwse-resize;
+}
+
+.resize-grip {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+.resize-grip span {
+  position: absolute;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  transform: rotate(-45deg);
+  transform-origin: 100% 50%;
+}
+
+.resize-grip span:nth-child(1) {
+  bottom: 1px;
+  width: 15px;
+}
+
+.resize-grip span:nth-child(2) {
+  bottom: 6px;
+  width: 10px;
+}
+
+.resize-grip span:nth-child(3) {
+  bottom: 11px;
+  width: 5px;
+}
+
+.weather-window.is-resizing .weather-body {
+  /* Avoids scroll position fighting the pointer while the widget is resized. */
+  overflow: hidden;
+}
+
+/* ---------- responsive content ---------- */
+
+@container weatherwin (min-width: 520px) {
+  .weather-top {
+    display: grid;
+    grid-template-columns: minmax(190px, 0.85fr) 1.15fr;
+    gap: 18px;
+    align-items: center;
+  }
+
+  .weather-stats {
+    margin-top: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .weather-hour {
+    width: 76px;
+  }
+
+  .weather-day {
+    padding: 12px 2px;
+  }
+}
+
+@container weatherwin (max-width: 340px) {
+  .weather-body {
+    padding: 12px 12px 16px;
+  }
+
+  .weather-now-icon {
+    width: 50px;
+    height: 50px;
+  }
+
+  .weather-now-temp {
+    font-size: 2.4rem;
+  }
+
+  .weather-stats {
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .weather-stat {
+    padding: 8px 10px;
+  }
+
+  .weather-section-title {
+    margin: 14px 0 6px;
+  }
+
+  .weather-hour {
+    width: 58px;
+  }
+
+  .weather-day-condition {
+    display: none;
+  }
+}
+
+@container weatherwin (max-height: 400px) {
+  .weather-body {
+    padding-top: 10px;
+  }
+
+  .weather-now-temp {
+    font-size: 2.2rem;
+  }
+
+  .weather-now-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .weather-section-title {
+    margin: 12px 0 6px;
+  }
+}

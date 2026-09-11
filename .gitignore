@@ -17,6 +17,11 @@ __pycache__/
 dist/
 out/
 
+# Local secrets (WeatherAPI key etc.)
+.env
+.env.local
+.env.*.local
+
 # OS / editor
 .DS_Store
 Thumbs.db

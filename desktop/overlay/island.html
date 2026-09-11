@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RitePath Dynamic Island</title>
+    <link rel="stylesheet" href="./overlay.css" />
+  </head>
+  <body>
+    <!-- The overlay view is kept just large enough for the pill, so the rest of
+         the screen (including any opened web app) stays fully interactive. -->
+    <div
+      id="island"
+      class="island"
+      role="button"
+      tabindex="0"
+      aria-label="RitePath status, tap for options"
+    >
+      <div class="island-summary">
+        <img class="island-icon" id="island-icon" alt="" />
+        <span class="island-emoji" id="island-emoji">&#127777;&#65039;</span>
+        <span class="island-temp" id="island-temp">--&deg;</span>
+      </div>
+
+      <div class="island-menu" id="island-menu">
+        <button type="button" class="island-option" id="island-weather-option">
+          <span class="island-option-icon" id="island-option-emoji">&#127777;&#65039;</span>
+          <span class="island-option-label">Weather</span>
+          <span class="island-option-chevron" aria-hidden="true">&rsaquo;</span>
+        </button>
+      </div>
+    </div>
+
+    <script src="./island.js"></script>
+  </body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RitePath Weather</title>
+    <link rel="stylesheet" href="./overlay.css" />
+  </head>
+  <body>
+    <!-- .weather-window carries the geometry; .weather-surface carries the
+         rounded, clipped visuals so the resize targets can extend past the
+         visible frame without being clipped away. -->
+    <section id="weather-window" class="weather-window" aria-label="Weather">
+      <div class="weather-surface">
+        <header class="weather-header" id="weather-header">
+          <div class="weather-grip" aria-hidden="true"></div>
+          <div class="weather-header-text">
+            <p class="weather-place" id="weather-place">Weather</p>
+            <p class="weather-updated" id="weather-updated">&nbsp;</p>
+          </div>
+          <button type="button" class="weather-close" id="weather-close" aria-label="Close weather">
+            &times;
+          </button>
+        </header>
+
+        <div class="weather-body" id="weather-body"></div>
+
+        <!-- Subtle hint that the window can be resized. -->
+        <div class="resize-grip" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+
+      <!-- Resize targets. They straddle the window edge so most of the touch
+           area sits outside the visible frame instead of covering content. -->
+      <div class="resize-handle resize-n" data-resize="n"></div>
+      <div class="resize-handle resize-s" data-resize="s"></div>
+      <div class="resize-handle resize-w" data-resize="w"></div>
+      <div class="resize-handle resize-e" data-resize="e"></div>
+      <div class="resize-handle resize-nw" data-resize="nw"></div>
+      <div class="resize-handle resize-ne" data-resize="ne"></div>
+      <div class="resize-handle resize-sw" data-resize="sw"></div>
+      <div class="resize-handle resize-se" data-resize="se"></div>
+    </section>
+
+    <script src="./weather.js"></script>
+  </body>
+</html>

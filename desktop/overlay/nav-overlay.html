@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RitePath navigation</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+
+      .nav-root {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 16px;
+        padding-bottom: 10px;
+        box-sizing: border-box;
+      }
+
+      /* Floating Home control: hidden until an upward swipe reveals it. */
+      .nav-panel {
+        display: grid;
+        place-items: center;
+        padding: 10px;
+        border-radius: 999px;
+        background: rgba(16, 18, 26, 0.58);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+        opacity: 0;
+        transform: translateY(26px) scale(0.94);
+        transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        pointer-events: none;
+      }
+
+      .nav-root.is-revealed .nav-panel {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+      }
+
+      .nav-home {
+        position: relative;
+        width: 68px;
+        height: 68px;
+        border: 0;
+        padding: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+        display: grid;
+        place-items: center;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nav-home:active {
+        transform: scale(0.94);
+      }
+
+      .nav-home-ring {
+        position: absolute;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.88);
+      }
+
+      .nav-home-core {
+        position: absolute;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.94);
+      }
+
+      /* The always-visible gesture handle. Dark fill + light outline so it reads
+         on both light (Google) and dark web pages. */
+      .nav-handle {
+        width: 132px;
+        height: 5px;
+        border-radius: 999px;
+        background: rgba(24, 26, 34, 0.55);
+        box-shadow:
+          0 0 0 1.5px rgba(255, 255, 255, 0.5),
+          0 2px 10px rgba(0, 0, 0, 0.35);
+        transition: transform 180ms ease, opacity 180ms ease;
+      }
+
+      .nav-root.is-revealed .nav-handle {
+        opacity: 0.75;
+        transform: scaleX(0.82);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="nav-root" id="nav-root">
+      <div class="nav-panel" id="nav-panel">
+        <button type="button" class="nav-home" id="nav-home" aria-label="Home">
+          <span class="nav-home-ring" aria-hidden="true"></span>
+          <span class="nav-home-core" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="nav-handle" aria-hidden="true"></div>
+    </div>
+
+    <script src="./nav-overlay.js"></script>
+  </body>
+</html>

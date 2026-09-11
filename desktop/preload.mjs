@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld('ritepath', {
   closeGoogle: async () => {
     ipcRenderer.send('ritepath:close-google');
   },
+  onGoHome: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('ritepath:go-home', listener);
+    return () => {
+      ipcRenderer.removeListener('ritepath:go-home', listener);
+    };
+  },
   onOpenDrawer: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('ritepath:open-drawer', listener);
