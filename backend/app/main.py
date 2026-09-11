@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 import hashlib
 import platform
 import re
@@ -13,7 +14,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,57 +80,268 @@ def ensure_files_root() -> None:
 
 def root_id_for_path(path: Path) -> str:
     digest = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:12]
-    if path == FILES_ROOT:
-        return "ritepath"
     return f"usb-{digest}"
 
 
-def discover_usb_roots() -> list[Path]:
-    roots: list[Path] = []
-    for candidate in [Path("/media"), Path("/run/media"), Path("/mnt")]:
-        if not candidate.exists():
+# Mount points that are never a removable drive, whatever the kernel flags say.
+NEVER_REMOVABLE = {
+    "/",
+    "/boot",
+    "/boot/firmware",
+    "/home",
+    "/usr",
+    "/var",
+    "/etc",
+    "/tmp",
+    "/run",
+    "/srv",
+    "/opt",
+}
+
+_MOUNT_CACHE: dict[str, Any] = {"at": 0.0, "mounts": []}
+_MOUNT_CACHE_SECONDS = 2.0
+
+
+def _usable_mount(mountpoint: str) -> bool:
+    """A mount we are willing to expose: a real, readable directory, not system."""
+    if not mountpoint or mountpoint in NEVER_REMOVABLE:
+        return False
+
+    resolved = os.path.realpath(mountpoint)
+    if resolved in NEVER_REMOVABLE:
+        return False
+
+    return os.path.isdir(resolved) and os.access(resolved, os.R_OK)
+
+
+def _walk_lsblk(node: dict[str, Any], inherited_removable: bool, found: list[dict[str, Any]]) -> None:
+    removable = bool(node.get("rm") or node.get("hotplug")) or inherited_removable
+
+    mountpoints = node.get("mountpoints") or []
+    single = node.get("mountpoint")
+    if single and single not in mountpoints:
+        mountpoints = [*mountpoints, single]
+
+    if removable:
+        for mountpoint in mountpoints:
+            if mountpoint and _usable_mount(mountpoint):
+                found.append(
+                    {
+                        "path": os.path.realpath(mountpoint),
+                        "label": node.get("label") or node.get("name") or "USB Drive",
+                        "device": node.get("path") or node.get("name") or "",
+                        "fstype": node.get("fstype") or "",
+                    }
+                )
+
+    for child in node.get("children") or []:
+        _walk_lsblk(child, removable, found)
+
+
+def _lsblk_removable_mounts() -> list[dict[str, Any]]:
+    """Primary detection path on Linux/Raspberry Pi.
+
+    lsblk reports the kernel's own removable (RM) and hotplug flags plus the
+    real mount point, so nothing has to be guessed from directory names.
+    """
+    try:
+        proc = run_command(
+            [
+                "lsblk",
+                "-J",
+                "-o",
+                "NAME,PATH,LABEL,MOUNTPOINT,MOUNTPOINTS,RM,HOTPLUG,TYPE,FSTYPE",
+            ]
+        )
+    except FileNotFoundError:
+        return []
+
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        logger.warning("lsblk returned output that could not be parsed")
+        return []
+
+    found: list[dict[str, Any]] = []
+    for device in payload.get("blockdevices") or []:
+        _walk_lsblk(device, False, found)
+    return found
+
+
+def _sysfs_removable_mounts() -> list[dict[str, Any]]:
+    """Fallback for systems without lsblk.
+
+    Cross-checks the mount table against /sys/class/block/<dev>/removable so a
+    directory is only ever exposed when the kernel says the backing device is
+    removable.
+    """
+    found: list[dict[str, Any]] = []
+
+    try:
+        with open("/proc/self/mounts", encoding="utf-8") as handle:
+            mount_lines = handle.readlines()
+    except OSError:
+        return found
+
+    for line in mount_lines:
+        parts = line.split()
+        if len(parts) < 2 or not parts[0].startswith("/dev/"):
             continue
+
+        device = parts[0]
+        mountpoint = parts[1].replace("\\040", " ")
+        if not _usable_mount(mountpoint):
+            continue
+
+        name = os.path.basename(device)
+        # A partition (sda1) inherits removability from its disk (sda).
+        parent = name.rstrip("0123456789") or name
+        for candidate in (name, parent):
+            flag = f"/sys/class/block/{candidate}/removable"
+            try:
+                with open(flag, encoding="utf-8") as handle:
+                    if handle.read().strip() == "1":
+                        found.append(
+                            {
+                                "path": os.path.realpath(mountpoint),
+                                "label": os.path.basename(mountpoint) or "USB Drive",
+                                "device": device,
+                                "fstype": parts[2] if len(parts) > 2 else "",
+                            }
+                        )
+                        break
+            except OSError:
+                continue
+
+    return found
+
+
+def _windows_removable_mounts() -> list[dict[str, Any]]:
+    """Development fallback so Files can be exercised on a Windows dev machine."""
+    try:
+        import ctypes
+    except ImportError:
+        return []
+
+    DRIVE_REMOVABLE = 2
+    found: list[dict[str, Any]] = []
+
+    try:
+        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+    except Exception:
+        return found
+
+    for index in range(26):
+        if not bitmask & (1 << index):
+            continue
+
+        root = f"{chr(ord('A') + index)}:\\"
         try:
-            for child in candidate.iterdir():
-                if child.is_dir():
-                    if child == FILES_ROOT:
-                        continue
-                    roots.append(child.resolve())
-        except PermissionError:
+            if ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(root)) != DRIVE_REMOVABLE:
+                continue
+        except Exception:
             continue
-    return roots
+
+        if not os.path.isdir(root):
+            continue
+
+        label = ctypes.create_unicode_buffer(261)
+        try:
+            ctypes.windll.kernel32.GetVolumeInformationW(
+                ctypes.c_wchar_p(root), label, 261, None, None, None, None, 0
+            )
+        except Exception:
+            pass
+
+        found.append(
+            {
+                "path": os.path.realpath(root),
+                "label": label.value or f"USB ({root[0]}:)",
+                "device": root,
+                "fstype": "",
+            }
+        )
+
+    return found
+
+
+def discover_removable_mounts(force: bool = False) -> list[dict[str, Any]]:
+    """Currently connected removable drives, briefly cached.
+
+    Files is USB-only: this is the single source of truth for what may be
+    browsed, and it is re-checked on every request so unplugging a drive takes
+    effect immediately.
+    """
+    now = time.time()
+    if not force and now - float(_MOUNT_CACHE["at"]) < _MOUNT_CACHE_SECONDS:
+        return list(_MOUNT_CACHE["mounts"])
+
+    if os.name == "nt":
+        mounts = _windows_removable_mounts()
+    else:
+        mounts = _lsblk_removable_mounts() or _sysfs_removable_mounts()
+
+    unique: dict[str, dict[str, Any]] = {}
+    for mount in mounts:
+        unique.setdefault(mount["path"], mount)
+
+    resolved = sorted(unique.values(), key=lambda item: item["path"])
+    _MOUNT_CACHE["at"] = now
+    _MOUNT_CACHE["mounts"] = resolved
+    return list(resolved)
 
 
 def discover_files_roots() -> list[dict[str, Any]]:
-    ensure_files_root()
-    roots = [
-        {"id": "ritepath", "label": "RitePath Files", "kind": "ritepath", "path": str(FILES_ROOT)},
+    return [
+        {
+            "id": root_id_for_path(Path(mount["path"])),
+            "label": mount["label"],
+            "kind": "usb",
+            "path": mount["path"],
+            "device": mount["device"],
+        }
+        for mount in discover_removable_mounts()
     ]
-    for usb_root in discover_usb_roots():
-        roots.append(
-            {
-                "id": root_id_for_path(usb_root),
-                "label": f"USB Drive - {usb_root.name}",
-                "kind": "usb",
-                "path": str(usb_root),
-            }
-        )
-    return roots
 
 
 def resolve_root(root_id: str) -> Path:
     for root in discover_files_roots():
         if root["id"] == root_id:
-            return Path(root["path"]).resolve()
-    raise HTTPException(status_code=404, detail="Unknown storage root")
+            return Path(root["path"])
+    raise HTTPException(status_code=404, detail="USB drive disconnected")
 
 
 def resolve_safe_path(root_id: str, relative_path: str) -> tuple[Path, Path, str]:
+    """Resolve a request path strictly inside one removable drive.
+
+    Everything is validated here, in trusted backend code: the root must still
+    be a connected removable drive, the resolved path must stay inside it, and
+    no component may be a symlink (which would otherwise be a way out).
+    """
     base = resolve_root(root_id)
-    safe_relative = relative_path.strip().lstrip("/\\")
-    candidate = (base / safe_relative).resolve()
-    if candidate != base and base not in candidate.parents:
+    raw = (relative_path or "").strip().replace("\\", "/")
+
+    if "\x00" in raw:
         raise HTTPException(status_code=400, detail="Invalid path")
+
+    parts = [part for part in raw.split("/") if part not in ("", ".")]
+    if any(part == ".." for part in parts):
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    candidate = base
+    for part in parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise HTTPException(status_code=400, detail="Invalid path")
+
+    real_base = Path(os.path.realpath(base))
+    real_candidate = Path(os.path.realpath(candidate))
+    if real_candidate != real_base and real_base not in real_candidate.parents:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
     return base, candidate, root_id
 
 
@@ -485,15 +697,70 @@ def save_custom_apps(apps: dict[str, Any]) -> None:
         raise HTTPException(status_code=500, detail=f"Failed to save app: {str(e)}")
 
 
+# USB content is untrusted, so previews are allowlisted by extension rather
+# than sniffed. Images are decoded by Chromium (sandboxed, no scripting), text
+# is rendered with textContent, and PDFs go to the built-in PDFium viewer.
+# Deliberately excluded: .svg (a document that can pull external resources) and
+# anything executable or markup (.html/.js/.py/.sh/.exe/...), which is shown as
+# "Preview not supported" and refused by the content endpoint.
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+TEXT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".log",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".xml",
+    ".yml",
+    ".yaml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".rst",
+    ".srt",
+}
+PDF_EXTENSIONS = {".pdf"}
+MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024
+
+PREVIEW_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".pdf": "application/pdf",
+}
+
+
+def preview_kind_for(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in IMAGE_EXTENSIONS:
+        return "image"
+    if suffix in PDF_EXTENSIONS:
+        return "pdf"
+    if suffix in TEXT_EXTENSIONS:
+        return "text"
+    return "none"
+
+
+def preview_media_type(path: Path, kind: str) -> str:
+    if kind == "text":
+        # Forced to text/plain so a text file can never be executed as markup.
+        return "text/plain; charset=utf-8"
+    return PREVIEW_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+
+
 def file_entry(path: Path, root_id: str) -> dict[str, Any]:
     stat = path.stat()
     mime_type, _ = mimetypes.guess_type(path.name)
     is_dir = path.is_dir()
-    previewable = bool(
-        not is_dir and (((mime_type or "").startswith(("text/", "image/"))) or mime_type == "application/pdf")
-    )
+    kind = "folder" if is_dir else preview_kind_for(path)
     base = resolve_root(root_id)
     relative_path = str(path.relative_to(base)).replace("\\", "/")
+    query = urlencode({"root": root_id, "path": relative_path})
     return {
         "name": path.name,
         "path": relative_path,
@@ -501,8 +768,9 @@ def file_entry(path: Path, root_id: str) -> dict[str, Any]:
         "size": None if is_dir else stat.st_size,
         "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         "mime_type": mime_type,
-        "previewable": previewable,
-        "content_url": None if is_dir else f"/api/files/content?root={root_id}&path={relative_path}",
+        "preview_kind": kind,
+        "previewable": kind in {"image", "text", "pdf"},
+        "content_url": None if is_dir else f"/api/files/content?{query}",
     }
 
 
@@ -679,14 +947,36 @@ def delete_custom_app(app_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/files")
-def list_files(root: str = Query(default="ritepath"), path: str = Query(default="")) -> dict[str, Any]:
+def list_files(root: str = Query(default=""), path: str = Query(default="")) -> dict[str, Any]:
+    roots = discover_files_roots()
+    if not roots:
+        raise HTTPException(status_code=404, detail="No USB drive connected")
+    if not root:
+        root = roots[0]["id"]
     base, target, root_id = resolve_safe_path(root, path)
     if not target.exists():
         raise HTTPException(status_code=404, detail="Folder not found")
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="Path is not a folder")
 
-    items = sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
+    # Symlinks are not followed anywhere inside a USB drive.
+    try:
+        items = sorted(
+            (item for item in target.iterdir() if not item.is_symlink()),
+            key=lambda item: (not item.is_dir(), item.name.lower()),
+        )
+    except OSError:
+        # The drive was pulled while we were reading it.
+        raise HTTPException(status_code=404, detail="USB drive disconnected")
+
+    entries = []
+    for item in items:
+        try:
+            entries.append(file_entry(item, root_id))
+        except OSError:
+            # An individual entry can vanish mid-listing; show the rest.
+            continue
+
     parent_path = None
     if target != base:
         parent_path = str(target.parent.relative_to(base)).replace("\\", "/")
@@ -695,17 +985,34 @@ def list_files(root: str = Query(default="ritepath"), path: str = Query(default=
 
     return {
         "root_id": root_id,
-        "root_label": next((entry["label"] for entry in discover_files_roots() if entry["id"] == root_id), "RitePath Files"),
+        "root_label": next((entry["label"] for entry in roots if entry["id"] == root_id), "USB Drive"),
         "current_path": "" if target == base else str(target.relative_to(base)).replace("\\", "/"),
         "parent_path": parent_path,
-        "roots": discover_files_roots(),
-        "items": [file_entry(item, root_id) for item in items],
+        "roots": roots,
+        "items": entries,
     }
 
 
 @app.get("/api/files/content")
-def file_content(root: str = Query(default="ritepath"), path: str = Query(...)) -> FileResponse:
+def file_content(root: str = Query(...), path: str = Query(...)) -> FileResponse:
     _, target, _ = resolve_safe_path(root, path)
     if not target.exists() or target.is_dir():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(target)
+
+    kind = preview_kind_for(target)
+    if kind == "none":
+        # Never hand back a binary or script from an untrusted drive.
+        raise HTTPException(status_code=415, detail="Preview not supported")
+
+    if kind == "text" and target.stat().st_size > MAX_TEXT_PREVIEW_BYTES:
+        raise HTTPException(status_code=413, detail="File is too large to preview")
+
+    return FileResponse(
+        target,
+        media_type=preview_media_type(target, kind),
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(target.name)}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )

@@ -15,7 +15,14 @@ const navOverlayPreloadPath = path.join(__dirname, 'overlay', 'nav-preload.mjs')
 const navOverlayHtml = path.join(__dirname, 'overlay', 'nav-overlay.html');
 const overlayPreloadPath = path.join(__dirname, 'overlay', 'overlay-preload.mjs');
 const islandHtml = path.join(__dirname, 'overlay', 'island.html');
-const weatherHtml = path.join(__dirname, 'overlay', 'weather.html');
+const surfaceHtml = path.join(__dirname, 'overlay', 'surface.html');
+const keyboardHtml = path.join(__dirname, 'overlay', 'keyboard.html');
+const keyboardPreloadPath = path.join(__dirname, 'overlay', 'keyboard-preload.mjs');
+const inputFocusPreloadPath = path.join(__dirname, 'input-focus-preload.mjs');
+
+// The backend serves USB file content. File viewers are given a URL on this
+// origin rather than any filesystem path or handle.
+const BACKEND_ORIGIN = 'http://127.0.0.1:8000';
 
 // Reads WEATHER_API_KEY (and the optional WEATHER_LOCATION) into the main
 // process only. The key never leaves this process.
@@ -23,6 +30,22 @@ loadEnvFiles(projectRoot);
 
 // Height of the always-present gesture strip, and of the temporarily enlarged
 // hit area that keeps an in-progress swipe attached to the overlay.
+// Named keys the on-screen keyboard may send, mapped to the codes Electron's
+// sendInputEvent understands. Anything not in this table is ignored.
+const NAMED_KEYS = {
+  Backspace: 'Backspace',
+  Enter: 'Enter',
+  Tab: 'Tab',
+  Escape: 'Escape',
+  Delete: 'Delete',
+  Left: 'Left',
+  Right: 'Right',
+  Up: 'Up',
+  Down: 'Down',
+  Home: 'Home',
+  End: 'End',
+};
+
 const NAV_COLLAPSED_HEIGHT = 44;
 const NAV_EXPANDED_HEIGHT = 220;
 
@@ -38,10 +61,23 @@ let navOverlayView = null;
 let navOverlayAttached = false;
 let navOverlayExpanded = false;
 let islandView = null;
-let weatherView = null;
-let weatherViewAttached = false;
-let weatherViewReady = false;
+let surfaceView = null;
+let surfaceViewAttached = false;
+let surfaceViewReady = false;
+let pendingSurfaceWindows = [];
 let weatherRefreshTimer = null;
+let keyboardView = null;
+let keyboardAttached = false;
+// The WebContents that owns the focused editable element. Remembered here in the
+// main process so tapping the keyboard - which necessarily moves view focus -
+// can never lose track of where the typing should go.
+let keyboardTarget = null;
+// Height the keyboard is currently taking from the bottom of the screen. Every
+// other view derives its bounds from this, so nothing is ever hardcoded and the
+// normal fullscreen geometry returns exactly when the keyboard closes.
+let keyboardInset = 0;
+let keyboardHideTimer = null;
+const KEYBOARD_ANIMATION_MS = 230;
 
 function startBackend() {
   if (backendProcess || process.env.RITEPATH_SKIP_BACKEND === '1') {
@@ -88,6 +124,9 @@ function ensureGoogleView() {
 
   googleView = new BrowserView({
     webPreferences: {
+      // Reports only *that* an editable element gained focus, so the on-screen
+      // keyboard can open. It exposes nothing to the page - see the file header.
+      preload: inputFocusPreloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -142,22 +181,38 @@ function ensureGoogleView() {
   return googleView;
 }
 
-// Shared factory for the transparent shell overlays (Dynamic Island, weather).
-// Each overlay is a BrowserView kept just large enough for what it draws, so the
-// launcher and any opened web app stay interactive around it.
-function createOverlayView(htmlFile) {
+// Shared factory for the transparent shell overlays (Dynamic Island, floating
+// window surface).
+//
+// contextIsolation stays on and nodeIntegration stays off. `plugins` enables
+// Chromium's built-in PDF viewer, which renders untrusted PDFs out-of-process
+// in its own sandbox; preloads do not run in subframes, so a PDF or any other
+// embedded content cannot reach the context bridge.
+function createOverlayView(htmlFile, { plugins = false } = {}) {
   const view = new BrowserView({
     webPreferences: {
       preload: overlayPreloadPath,
       contextIsolation: true,
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      webSecurity: true,
       sandbox: false,
       transparent: true,
+      plugins,
     },
   });
 
   view.setBackgroundColor('#00000000');
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  // Untrusted content must never be able to navigate the overlay itself away
+  // from its local page.
+  view.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://')) {
+      event.preventDefault();
+    }
+  });
+
   void view.webContents.loadFile(htmlFile);
 
   return view;
@@ -197,74 +252,232 @@ function showIslandOverlay() {
   sendViewport(view);
 }
 
-function ensureWeatherOverlay() {
-  if (weatherView) {
-    return weatherView;
+function ensureSurfaceOverlay() {
+  if (surfaceView) {
+    return surfaceView;
   }
 
-  weatherView = createOverlayView(weatherHtml);
-  weatherView.setBounds({ x: 0, y: 0, width: 1, height: 1 });
-  weatherViewReady = false;
+  surfaceView = createOverlayView(surfaceHtml, { plugins: true });
+  surfaceView.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+  surfaceViewReady = false;
 
-  // On the very first open the page is still loading, and messages sent to a
-  // renderer that has not registered its listeners yet are dropped. Replaying
-  // them here is what stops the window from laying itself out against an
-  // unknown screen size.
-  weatherView.webContents.once('did-finish-load', () => {
-    weatherViewReady = true;
-    sendViewport(weatherView);
+  // On the first open the page is still loading, and messages sent to a
+  // renderer that has not registered its listeners yet are dropped. Anything
+  // requested before then is replayed here.
+  surfaceView.webContents.once('did-finish-load', () => {
+    surfaceViewReady = true;
+    sendViewport(surfaceView);
 
-    if (weatherViewAttached) {
-      weatherView.webContents.send('ritepath:overlay-reset');
+    const queued = pendingSurfaceWindows;
+    pendingSurfaceWindows = [];
+    for (const descriptor of queued) {
+      surfaceView.webContents.send('ritepath:surface-open-window', descriptor);
     }
   });
 
-  return weatherView;
+  return surfaceView;
 }
 
-function showWeatherOverlay() {
+function resizeSurfaceOverlay() {
+  if (!mainWindow || !surfaceView || !surfaceViewAttached) {
+    return;
+  }
+
+  // The surface always covers the screen while it is attached, and is never
+  // resized while a window is visible - that is what keeps dragging stable.
+  const bounds = mainWindow.getContentBounds();
+  surfaceView.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
+}
+
+// Opens one floating window (weather or a file viewer) on the shared surface.
+function openSurfaceWindow(descriptor) {
   if (!mainWindow) {
     return;
   }
 
-  const view = ensureWeatherOverlay();
-  if (!weatherViewAttached) {
+  const view = ensureSurfaceOverlay();
+  if (!surfaceViewAttached) {
     mainWindow.addBrowserView(view);
-    weatherViewAttached = true;
+    surfaceViewAttached = true;
   }
 
+  resizeSurfaceOverlay();
   sendViewport(view);
   raiseOverlays();
 
-  if (weatherViewReady) {
-    view.webContents.send('ritepath:overlay-reset');
+  if (surfaceViewReady) {
+    view.webContents.send('ritepath:surface-open-window', descriptor);
+  } else {
+    pendingSurfaceWindows.push(descriptor);
   }
 }
 
-function hideWeatherOverlay() {
-  if (!mainWindow || !weatherView || !weatherViewAttached) {
+// Called once the surface reports that its last window has closed, so it stops
+// intercepting input for the rest of the screen.
+function hideSurfaceOverlay() {
+  if (!mainWindow || !surfaceView || !surfaceViewAttached) {
     return;
   }
 
-  mainWindow.removeBrowserView(weatherView);
-  weatherViewAttached = false;
+  mainWindow.removeBrowserView(surfaceView);
+  surfaceViewAttached = false;
+}
+
+/* ---------- on-screen keyboard ---------- */
+
+// Derived from the live window, never from a fixed resolution: a short landscape
+// screen gives the keyboard a larger share than a tall portrait one, and the
+// result is clamped so keys stay finger-sized either way.
+function keyboardHeightFor(bounds) {
+  const ratio = bounds.width >= bounds.height ? 0.44 : 0.34;
+  return Math.round(Math.min(Math.max(bounds.height * ratio, 190), 560));
+}
+
+function ensureKeyboardView() {
+  if (keyboardView) {
+    return keyboardView;
+  }
+
+  keyboardView = new BrowserView({
+    webPreferences: {
+      preload: keyboardPreloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      transparent: true,
+    },
+  });
+
+  keyboardView.setBackgroundColor('#00000000');
+  keyboardView.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  void keyboardView.webContents.loadFile(keyboardHtml);
+
+  return keyboardView;
+}
+
+function showKeyboard() {
+  if (!mainWindow) {
+    return;
+  }
+
+  const view = ensureKeyboardView();
+
+  // A pending slide-down was interrupted by a new focus: keep the view attached.
+  if (keyboardHideTimer) {
+    clearTimeout(keyboardHideTimer);
+    keyboardHideTimer = null;
+  }
+
+  if (!keyboardAttached) {
+    if (!mainWindow.getBrowserViews().includes(view)) {
+      mainWindow.addBrowserView(view);
+    }
+    keyboardAttached = true;
+  }
+
+  // Sizes the keyboard and re-derives every other view against the new inset.
+  layoutShell();
+  raiseOverlays();
+
+  // Once the space is taken, ask the page to bring the focused field into view.
+  if (keyboardTarget && !keyboardTarget.isDestroyed()) {
+    keyboardTarget.send('ritepath:reveal-focused', { inset: keyboardInset });
+  }
+}
+
+function hideKeyboard() {
+  if (!mainWindow || !keyboardView || !keyboardAttached) {
+    return;
+  }
+
+  keyboardAttached = false;
+  keyboardInset = 0;
+
+  // Let the keyboard slide back down before the view goes away.
+  const view = keyboardView;
+  view.webContents.send('ritepath:keyboard-layout', { visible: false });
+
+  if (keyboardHideTimer) {
+    clearTimeout(keyboardHideTimer);
+  }
+
+  keyboardHideTimer = setTimeout(() => {
+    keyboardHideTimer = null;
+    if (mainWindow && !mainWindow.isDestroyed() && keyboardView === view && !keyboardAttached) {
+      mainWindow.removeBrowserView(view);
+    }
+  }, KEYBOARD_ANIMATION_MS);
+
+  // Restores the exact pre-keyboard bounds, portrait or landscape.
+  layoutShell();
+
+  if (keyboardTarget && !keyboardTarget.isDestroyed()) {
+    keyboardTarget.send('ritepath:reveal-focused', { inset: 0 });
+  }
+}
+
+// Delivers one key to whichever WebContents owns the focused editable element.
+//
+// The target is focused first because tapping the keyboard overlay moves view
+// focus to the keyboard; restoring it means the real field - Google's search box
+// included - receives genuine key events rather than text being pasted in.
+//
+// Nothing here is logged or stored: the payload is used and discarded.
+function deliverKey(payload) {
+  const target = keyboardTarget;
+  if (!target || target.isDestroyed()) {
+    return;
+  }
+
+  const modifiers = [];
+  if (payload?.shift) {
+    modifiers.push('shift');
+  }
+  if (payload?.control) {
+    modifiers.push('control');
+  }
+  if (payload?.alt) {
+    modifiers.push('alt');
+  }
+
+  target.focus();
+
+  const text = typeof payload?.text === 'string' ? payload.text : null;
+  if (text && [...text].length === 1) {
+    target.sendInputEvent({ type: 'keyDown', keyCode: text, modifiers });
+    target.sendInputEvent({ type: 'char', keyCode: text, modifiers });
+    target.sendInputEvent({ type: 'keyUp', keyCode: text, modifiers });
+    return;
+  }
+
+  const named = NAMED_KEYS[payload?.key];
+  if (!named) {
+    return;
+  }
+
+  target.sendInputEvent({ type: 'keyDown', keyCode: named, modifiers });
+  target.sendInputEvent({ type: 'keyUp', keyCode: named, modifiers });
 }
 
 // Keeps the shell overlays above opened web apps. The bottom Home navigation is
-// raised last so it always wins over the weather window.
+// raised last so it always wins - including over the keyboard.
 function raiseOverlays() {
   if (!mainWindow) {
     return;
   }
 
-  if (weatherView && weatherViewAttached) {
-    mainWindow.setTopBrowserView(weatherView);
+  if (surfaceView && surfaceViewAttached) {
+    mainWindow.setTopBrowserView(surfaceView);
   }
 
-  // The island sits above the weather overlay so the pill stays tappable while
-  // the weather window is open.
+  // The island sits above the window surface so the pill stays tappable while
+  // floating windows are open.
   if (islandView) {
     mainWindow.setTopBrowserView(islandView);
+  }
+
+  if (keyboardView && keyboardAttached) {
+    mainWindow.setTopBrowserView(keyboardView);
   }
 
   if (navOverlayView && navOverlayAttached) {
@@ -273,7 +486,7 @@ function raiseOverlays() {
 }
 
 function broadcastWeather(result) {
-  for (const view of [islandView, weatherView]) {
+  for (const view of [islandView, surfaceView]) {
     if (view && !view.webContents.isDestroyed()) {
       view.webContents.send('ritepath:weather-update', result);
     }
@@ -343,9 +556,13 @@ function resizeNavOverlay() {
     bounds.height,
   );
 
+  // While the keyboard is open the Home gesture strip rides directly above it,
+  // so swiping up for Home keeps working instead of being covered.
+  const bottom = Math.max(height, bounds.height - keyboardInset);
+
   navOverlayView.setBounds({
     x: 0,
-    y: Math.max(0, bounds.height - height),
+    y: Math.max(0, bottom - height),
     width: bounds.width,
     height,
   });
@@ -390,7 +607,10 @@ function getAppViewBounds() {
     x: 0,
     y: 0,
     width: Math.max(1, bounds.width),
-    height: Math.max(1, bounds.height),
+    // The on-screen keyboard takes space from the bottom while it is open, so
+    // the page reflows and the focused field stays visible. keyboardInset is 0
+    // whenever the keyboard is closed, which restores the exact fullscreen rect.
+    height: Math.max(1, bounds.height - keyboardInset),
   };
 }
 
@@ -444,10 +664,30 @@ function layoutShell() {
     return;
   }
 
+  // The keyboard is laid out first because every other view's bounds are derived
+  // from the space it leaves behind.
+  if (keyboardAttached && keyboardView) {
+    const bounds = mainWindow.getContentBounds();
+    const height = Math.min(keyboardHeightFor(bounds), bounds.height);
+    keyboardInset = height;
+    keyboardView.setBounds({
+      x: 0,
+      y: Math.max(0, bounds.height - height),
+      width: bounds.width,
+      height,
+    });
+    keyboardView.webContents.send('ritepath:keyboard-layout', {
+      width: bounds.width,
+      height,
+      visible: true,
+    });
+  }
+
   resizeGoogleView();
   resizeNavOverlay();
+  resizeSurfaceOverlay();
   sendViewport(islandView);
-  sendViewport(weatherView);
+  sendViewport(surfaceView);
 
   if (process.env.RITEPATH_DEBUG_LAYOUT === '1') {
     const content = mainWindow.getContentBounds();
@@ -500,6 +740,12 @@ function showGoogleView(url) {
 
 function hideGoogleView() {
   hideNavOverlay();
+
+  // A web app's field cannot still be focused once the app is gone.
+  if (googleView && keyboardTarget === googleView.webContents) {
+    keyboardTarget = null;
+    hideKeyboard();
+  }
 
   if (!mainWindow || !googleView || !googleViewAttached) {
     return;
@@ -575,8 +821,14 @@ function createWindow() {
     navOverlayExpanded = false;
     navOverlayView = null;
     islandView = null;
-    weatherView = null;
-    weatherViewAttached = false;
+    surfaceView = null;
+    surfaceViewAttached = false;
+    surfaceViewReady = false;
+    pendingSurfaceWindows = [];
+    keyboardView = null;
+    keyboardAttached = false;
+    keyboardTarget = null;
+    keyboardInset = 0;
     mainWindow = null;
   });
 
@@ -617,7 +869,7 @@ function applyOverlayBounds(sender, rect) {
     return null;
   }
 
-  const view = [islandView, weatherView].find(
+  const view = [islandView, surfaceView].find(
     (candidate) => candidate && candidate.webContents === sender,
   );
   if (!view) {
@@ -659,14 +911,80 @@ ipcMain.handle('ritepath:weather-get', async (_event, options) => {
 });
 
 ipcMain.on('ritepath:weather-open', () => {
-  showWeatherOverlay();
+  openSurfaceWindow({ id: 'weather', type: 'weather', title: 'Weather' });
 });
 
-ipcMain.on('ritepath:weather-close', () => {
-  hideWeatherOverlay();
+// The surface owns its own windows; it tells us when the last one has gone so
+// the overlay can be detached and stop intercepting input.
+ipcMain.on('ritepath:surface-empty', () => {
+  hideSurfaceOverlay();
 });
 
-// Local-only geometry store so the weather window reopens where the user left it.
+// Opens a USB file in a floating viewer. The renderer only ever passes an
+// already-validated root id and relative path; the backend re-validates both and
+// refuses anything that is not previewable, so no filesystem path is trusted
+// from here.
+ipcMain.on('ritepath:open-file-viewer', (_event, file) => {
+  const rootId = String(file?.rootId ?? '');
+  const relativePath = String(file?.path ?? '');
+  const previewKind = String(file?.previewKind ?? 'none');
+  const name = String(file?.name ?? 'File');
+
+  if (!rootId || !relativePath) {
+    return;
+  }
+
+  const query = new URLSearchParams({ root: rootId, path: relativePath });
+  const contentUrl = `${BACKEND_ORIGIN}/api/files/content?${query.toString()}`;
+
+  openSurfaceWindow({
+    id: `file:${rootId}:${relativePath}`,
+    type: 'file',
+    title: name,
+    subtitle: String(file?.subtitle ?? ''),
+    payload: {
+      contentUrl,
+      previewKind,
+      name,
+      mimeType: file?.mimeType ? String(file.mimeType) : null,
+    },
+  });
+});
+
+// A page reports that its focused element became (or stopped being) editable.
+// Only RitePath's own preload can send this - websites have no access to it.
+ipcMain.on('ritepath:input-focus', (event, info) => {
+  if (info?.editable) {
+    keyboardTarget = event.sender;
+    showKeyboard();
+    return;
+  }
+
+  // Ignore blur reports from a page that is not the current target, so moving
+  // between fields in one page cannot be closed by a stale message.
+  if (keyboardTarget === event.sender) {
+    hideKeyboard();
+  }
+});
+
+// Key presses are only ever accepted from the keyboard overlay itself.
+ipcMain.on('ritepath:keyboard-key', (event, payload) => {
+  if (!keyboardView || event.sender !== keyboardView.webContents) {
+    return;
+  }
+
+  deliverKey(payload);
+});
+
+ipcMain.on('ritepath:keyboard-hide', (event) => {
+  if (!keyboardView || event.sender !== keyboardView.webContents) {
+    return;
+  }
+
+  hideKeyboard();
+});
+
+// Local-only geometry store so floating windows reopen where the user left them.
 ipcMain.handle('ritepath:widget-state-get', async (_event, key) => {
   return getWidgetState(String(key ?? ''));
 });

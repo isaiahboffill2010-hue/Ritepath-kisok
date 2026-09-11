@@ -13,7 +13,13 @@ body {
   height: 100%;
   background: transparent;
   overflow: hidden;
-  touch-action: none;
+  /* Not `none`: a touch-action of none on an ancestor also forbids panning in
+     every descendant, which would stop a finger from scrolling the weather
+     content. There is nothing scrollable at the root (overflow is hidden), so
+     `manipulation` costs nothing here and lets the scroll areas below opt in.
+     The parts that must never pan - window chrome and resize handles - set
+     touch-action: none on themselves. */
+  touch-action: manipulation;
   -webkit-user-select: none;
   user-select: none;
   cursor: default;
@@ -40,7 +46,9 @@ body {
   border-radius: 999px;
   background: rgba(8, 10, 16, 0.86);
   border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  /* No drop shadow: over a light page such as Google the soft shadow read as a
+     grey smudge around the pill. The dark fill and hairline border give it
+     enough separation on their own. */
   transition:
     width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
     height 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -259,7 +267,17 @@ body {
   overscroll-behavior: contain;
   padding: 16px 18px 20px;
   -webkit-overflow-scrolling: touch;
+  /* Vertical panning only, so a finger drag here scrolls the forecast and never
+     drags the window - the header owns that. */
   touch-action: pan-y;
+  /* Scrolling stays fully enabled; only the scrollbar is hidden. */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+
+.weather-body::-webkit-scrollbar {
+  /* Chromium, which is what runs on the kiosk. */
+  display: none;
 }
 
 .weather-now {
@@ -620,6 +638,53 @@ body {
   }
 }
 
+/* Large window: use the extra width rather than stretching empty space. More of
+   the hourly strip is visible without scrolling and the details sit four across,
+   with only a modest bump in type size. */
+@container weatherwin (min-width: 760px) {
+  .weather-body {
+    padding: 22px 26px 26px;
+  }
+
+  .weather-top {
+    grid-template-columns: minmax(250px, 0.8fr) 1.2fr;
+    gap: 26px;
+  }
+
+  .weather-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .weather-now-icon {
+    width: 76px;
+    height: 76px;
+  }
+
+  .weather-now-temp {
+    font-size: 3.5rem;
+  }
+
+  .weather-hour {
+    width: 88px;
+  }
+}
+
+/* Tall window: let the sections breathe instead of leaving a gap at the bottom. */
+@container weatherwin (min-height: 900px) {
+  .weather-section-title {
+    margin: 26px 0 10px;
+  }
+
+  .weather-day {
+    padding: 16px 2px;
+  }
+
+  .weather-stat {
+    padding: 14px 16px;
+  }
+}
+
 @container weatherwin (max-width: 340px) {
   .weather-body {
     padding: 12px 12px 16px;
@@ -673,4 +738,57 @@ body {
   .weather-section-title {
     margin: 12px 0 6px;
   }
+}
+
+/* ---------- floating window surface ---------- */
+
+.surface {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- file viewers ---------- */
+
+.viewer-body {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+.viewer-image-frame {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.22);
+  touch-action: pan-x pan-y;
+}
+
+.viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.viewer-pdf {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #1b1f29;
+}
+
+.viewer-text {
+  flex: 1;
+  margin: 0;
+  padding: 16px 18px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: rgba(236, 242, 255, 0.9);
+  touch-action: pan-y;
 }

@@ -1,3 +1,5 @@
+export type PreviewKind = 'folder' | 'image' | 'text' | 'pdf' | 'none';
+
 export type FileEntry = {
   name: string;
   path: string;
@@ -5,14 +7,17 @@ export type FileEntry = {
   size: number | null;
   modified: string | null;
   mime_type: string | null;
+  preview_kind: PreviewKind;
   previewable: boolean;
   content_url: string | null;
 };
 
+// Files is USB-only: every root is a connected removable drive.
 export type FileRoot = {
   id: string;
   label: string;
-  kind: 'ritepath' | 'usb';
+  kind: 'usb';
+  device?: string;
 };
 
 export type FilesResponse = {
@@ -144,7 +149,7 @@ export async function fetchFileRoots() {
   return requestJson<{ roots: FileRoot[] }>('/api/files/roots');
 }
 
-export async function fetchFiles(root = 'ritepath', path = '') {
+export async function fetchFiles(root = '', path = '') {
   const params = new URLSearchParams();
   params.set('root', root);
   if (path) {

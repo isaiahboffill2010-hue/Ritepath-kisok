@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  fetchFileContent,
   fetchFileRoots,
   fetchFiles,
   isBackendOfflineError,
@@ -16,14 +15,14 @@ type FilesScreenProps = {
   onHomeClick: () => void;
 };
 
-type PreviewState = {
-  entry: FileEntry;
-  textContent: string | null;
-};
+// How often we re-check which removable drives are connected. Plugging a drive
+// in or pulling it out is picked up without restarting RitePath.
+const DRIVE_POLL_MS = 3000;
+const DOUBLE_TAP_MS = 450;
 
 function formatBytes(bytes: number | null) {
   if (bytes === null) {
-    return 'Unknown size';
+    return '';
   }
 
   if (bytes < 1024) {
@@ -37,115 +36,180 @@ function formatBytes(bytes: number | null) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatModified(value: string | null) {
-  if (!value) {
-    return 'Unknown time';
+function iconFor(entry: FileEntry) {
+  switch (entry.preview_kind) {
+    case 'folder':
+      return '\u{1F4C1}';
+    case 'image':
+      return '\u{1F5BC}\u{FE0F}';
+    case 'pdf':
+      return '\u{1F4D5}';
+    case 'text':
+      return '\u{1F4DD}';
+    default:
+      return '\u{1F4C4}';
   }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString();
 }
 
-function extensionLabel(entry: FileEntry) {
+function typeLabel(entry: FileEntry) {
   if (entry.is_dir) {
     return 'Folder';
   }
 
   const parts = entry.name.split('.');
-  const extension = parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
-  if (entry.mime_type?.startsWith('image/')) {
-    return 'Image';
+  const extension = parts.length > 1 ? parts[parts.length - 1].toUpperCase() : 'File';
+
+  switch (entry.preview_kind) {
+    case 'image':
+      return `${extension} image`;
+    case 'pdf':
+      return 'PDF';
+    case 'text':
+      return `${extension} text`;
+    default:
+      return extension;
   }
-  if (entry.mime_type?.startsWith('text/') || ['txt', 'md', 'json', 'csv', 'log'].includes(extension)) {
-    return 'Text';
-  }
-  if (entry.mime_type === 'application/pdf' || extension === 'pdf') {
-    return 'PDF';
-  }
-  return extension ? extension.toUpperCase() : 'File';
 }
 
 export function FilesScreen({ time, onHomeClick }: FilesScreenProps) {
-  const [data, setData] = useState<FilesResponse | null>(null);
   const [roots, setRoots] = useState<FileRoot[]>([]);
-  const [currentRoot, setCurrentRoot] = useState('ritepath');
+  const [currentRoot, setCurrentRoot] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState('');
+  const [data, setData] = useState<FilesResponse | null>(null);
+  const [selected, setSelected] = useState<FileEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentPath, setCurrentPath] = useState('');
-  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const lastTapRef = useRef<{ path: string; at: number } | null>(null);
 
+  // Poll for connected removable drives.
   useEffect(() => {
-    let mounted = true;
+    let active = true;
 
-    fetchFileRoots()
-      .then((result) => {
-        if (!mounted) {
+    async function pollDrives() {
+      try {
+        const result = await fetchFileRoots();
+        if (!active) {
           return;
         }
 
         setRoots(result.roots);
-        if (result.roots.length > 0 && !result.roots.some((root) => root.id === currentRoot)) {
-          setCurrentRoot(result.roots[0].id);
+        setError(null);
+
+        setCurrentRoot((previous) => {
+          if (previous && result.roots.some((root) => root.id === previous)) {
+            return previous;
+          }
+
+          // Either nothing was selected yet, or the drive we were browsing was
+          // unplugged: fall back to whatever is still connected.
+          return result.roots[0]?.id ?? null;
+        });
+      } catch (pollError) {
+        if (!active) {
+          return;
         }
-      })
-      .catch(() => {
-        if (mounted) {
-          setRoots([]);
+
+        setRoots([]);
+        setCurrentRoot(null);
+        setError(isBackendOfflineError(pollError) ? 'RitePath Backend Offline' : null);
+      } finally {
+        if (active) {
+          setLoading(false);
         }
-      });
+      }
+    }
+
+    void pollDrives();
+    const timer = window.setInterval(() => void pollDrives(), DRIVE_POLL_MS);
 
     return () => {
-      mounted = false;
+      active = false;
+      window.clearInterval(timer);
     };
   }, []);
 
+  // Reset the browsing position whenever the drive changes or disappears.
   useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    setError(null);
+    setCurrentPath('');
+    setSelected(null);
+    if (!currentRoot) {
+      setData(null);
+    }
+  }, [currentRoot]);
 
-    fetchFiles(currentRoot, currentPath)
-      .then((result) => {
-        if (mounted) {
-          setData(result);
-        }
-      })
-      .catch((requestError) => {
-        if (mounted) {
-          setError(isBackendOfflineError(requestError) ? 'RitePath Backend Offline' : 'Unable to load files.');
-        }
-      })
-      .finally(() => {
-        if (mounted) {
-          setLoading(false);
-        }
-      });
+  const loadFolder = useCallback(async () => {
+    if (!currentRoot) {
+      return;
+    }
 
-    return () => {
-      mounted = false;
-    };
+    try {
+      const result = await fetchFiles(currentRoot, currentPath);
+      setData(result);
+      setError(null);
+    } catch (loadError) {
+      if (isBackendOfflineError(loadError)) {
+        setError('RitePath Backend Offline');
+        return;
+      }
+
+      // The folder (or the whole drive) went away while we were browsing it.
+      setData(null);
+      if (currentPath) {
+        setCurrentPath('');
+      } else {
+        setError('This folder is no longer available.');
+      }
+    }
   }, [currentPath, currentRoot]);
 
-  async function handleFileClick(entry: FileEntry) {
+  useEffect(() => {
+    void loadFolder();
+  }, [loadFolder]);
+
+  function openEntry(entry: FileEntry) {
     if (entry.is_dir) {
+      setSelected(null);
       setCurrentPath(entry.path);
       return;
     }
 
-    if (!entry.previewable || !entry.content_url) {
-      setPreview({ entry, textContent: null });
+    if (!currentRoot) {
       return;
     }
 
-    if (entry.mime_type?.startsWith('text/')) {
-      const response = await fetchFileContent(currentRoot, entry.path);
-      const textContent = await response.text();
-      setPreview({ entry, textContent });
-      return;
-    }
-
-    setPreview({ entry, textContent: null });
+    void window.ritepath?.openFileViewer({
+      rootId: currentRoot,
+      path: entry.path,
+      name: entry.name,
+      previewKind: entry.preview_kind,
+      mimeType: entry.mime_type,
+      subtitle: [typeLabel(entry), formatBytes(entry.size)].filter(Boolean).join(' · '),
+    });
   }
+
+  // Folders open on a single tap. Files need a double tap (or the Open button)
+  // so a stray touch never launches a viewer.
+  function handleEntryTap(entry: FileEntry) {
+    if (entry.is_dir) {
+      openEntry(entry);
+      return;
+    }
+
+    const previous = lastTapRef.current;
+    const now = Date.now();
+    lastTapRef.current = { path: entry.path, at: now };
+
+    if (previous && previous.path === entry.path && now - previous.at < DOUBLE_TAP_MS) {
+      lastTapRef.current = null;
+      openEntry(entry);
+      return;
+    }
+
+    setSelected(entry);
+  }
+
+  const items = data?.items ?? [];
+  const hasDrive = Boolean(currentRoot);
 
   return (
     <div className="kiosk-content kiosk-content--app">
@@ -157,23 +221,19 @@ export function FilesScreen({ time, onHomeClick }: FilesScreenProps) {
         </button>
         <div className="app-title-block">
           <p className="launcher-label">Files</p>
-          <h1>RitePath Files</h1>
-          <p className="launcher-subtitle">Browse the designated RitePath folder and safe USB drives.</p>
+          <h1>USB Files</h1>
+          <p className="launcher-subtitle">Browse files on a connected USB drive.</p>
         </div>
       </div>
 
-      {roots.length > 0 ? (
-        <div className="app-root-strip" aria-label="Available storage roots">
+      {roots.length > 1 ? (
+        <div className="app-root-strip" aria-label="Connected USB drives">
           {roots.map((root) => (
             <button
               type="button"
               key={root.id}
               className={`app-root-chip ${root.id === currentRoot ? 'app-root-chip--active' : ''}`}
-              onClick={() => {
-                setCurrentRoot(root.id);
-                setCurrentPath('');
-                setPreview(null);
-              }}
+              onClick={() => setCurrentRoot(root.id)}
             >
               {root.label}
             </button>
@@ -181,73 +241,92 @@ export function FilesScreen({ time, onHomeClick }: FilesScreenProps) {
         </div>
       ) : null}
 
-      <div className="app-path-row" aria-label="Current folder path">
-        <span className="app-path-chip">{data?.root_label ?? 'RitePath Files'} / {data?.current_path || '/'}</span>
-        {data?.parent_path ? (
-          <button type="button" className="app-path-button" onClick={() => setCurrentPath(data.parent_path ?? '')}>
-            Up one level
-          </button>
-        ) : null}
-      </div>
-
-      {error ? <div className="app-banner app-banner--warning">{error}</div> : null}
-      {loading ? <div className="app-banner">Loading files...</div> : null}
-
-      <section className="file-list" aria-label="Files and folders">
-        {(data?.items ?? []).map((entry) => (
-          <button
-            key={entry.path}
-            type="button"
-            className={`file-row ${entry.is_dir ? 'file-row--folder' : ''}`}
-            onClick={() => void handleFileClick(entry)}
-          >
-            <div className="file-row__icon" aria-hidden="true">
-              {entry.is_dir ? '📁' : '📄'}
-            </div>
-            <div className="file-row__body">
-              <div className="file-row__title">
-                <span>{entry.name}</span>
-                <span className="file-row__type">{extensionLabel(entry)}</span>
-              </div>
-              <div className="file-row__meta">
-                <span>{formatBytes(entry.size)}</span>
-                <span>{formatModified(entry.modified)}</span>
-              </div>
-            </div>
-          </button>
-        ))}
-      </section>
-
-      {!loading && !error && (data?.items.length ?? 0) === 0 ? <div className="app-banner">This folder is empty.</div> : null}
-
-      <NavigationBar onHomeClick={onHomeClick} />
-
-      {preview ? (
-        <div className="preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${preview.entry.name}`}>
-          <div className="preview-modal__panel">
-            <div className="preview-modal__header">
-              <div>
-                <p className="launcher-label">Preview</p>
-                <h2>{preview.entry.name}</h2>
-              </div>
-              <button type="button" className="app-back-button" onClick={() => setPreview(null)}>
-                Close
-              </button>
-            </div>
-            <div className="preview-modal__content">
-              {preview.entry.mime_type?.startsWith('image/') && preview.entry.content_url ? (
-                <img className="preview-image" src={preview.entry.content_url} alt={preview.entry.name} />
-              ) : preview.entry.mime_type === 'application/pdf' && preview.entry.content_url ? (
-                <iframe className="preview-frame" src={preview.entry.content_url} title={preview.entry.name} />
-              ) : preview.textContent !== null ? (
-                <pre className="preview-text">{preview.textContent}</pre>
-              ) : (
-                <div className="app-banner">Preview not supported for this file type yet.</div>
-              )}
-            </div>
-          </div>
+      {hasDrive ? (
+        <div className="app-path-row" aria-label="Current folder path">
+          <span className="app-path-chip">
+            {data?.root_label ?? 'USB Drive'} / {data?.current_path || ''}
+          </span>
+          {data && data.parent_path !== null ? (
+            <button
+              type="button"
+              className="app-path-button"
+              onClick={() => {
+                setSelected(null);
+                setCurrentPath(data.parent_path ?? '');
+              }}
+            >
+              Up one level
+            </button>
+          ) : null}
         </div>
       ) : null}
+
+      {error ? <div className="app-banner app-banner--warning">{error}</div> : null}
+
+      {!hasDrive && !loading && !error ? (
+        <section className="usb-empty" aria-label="No USB drive connected">
+          <div className="usb-empty__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="presentation">
+              <path d="M13 3v8h2V7l2 2v2h-2v2h-2v6.5a1.5 1.5 0 0 1-3 0V13H8v-2H6V8l2-2v4h2V3h3z" />
+            </svg>
+          </div>
+          <h2 className="usb-empty__title">Insert a USB drive</h2>
+          <p className="usb-empty__note">
+            Connected USB drives appear here automatically. RitePath Files only shows removable
+            storage.
+          </p>
+        </section>
+      ) : null}
+
+      {hasDrive ? (
+        <section className="file-list" aria-label="Files and folders">
+          {items.map((entry) => (
+            <button
+              key={entry.path}
+              type="button"
+              className={`file-row ${entry.is_dir ? 'file-row--folder' : ''} ${
+                selected?.path === entry.path ? 'file-row--selected' : ''
+              }`}
+              onClick={() => handleEntryTap(entry)}
+              onDoubleClick={() => openEntry(entry)}
+            >
+              <div className="file-row__icon" aria-hidden="true">
+                {iconFor(entry)}
+              </div>
+              <div className="file-row__body">
+                <div className="file-row__title">
+                  <span>{entry.name}</span>
+                  <span className="file-row__type">{typeLabel(entry)}</span>
+                </div>
+                <div className="file-row__meta">
+                  <span>{formatBytes(entry.size)}</span>
+                  {!entry.is_dir && !entry.previewable ? <span>Preview not supported</span> : null}
+                </div>
+              </div>
+            </button>
+          ))}
+        </section>
+      ) : null}
+
+      {hasDrive && items.length === 0 && !error ? (
+        <div className="app-banner">This folder is empty.</div>
+      ) : null}
+
+      {selected ? (
+        <div className="file-actions" role="group" aria-label="Selected file actions">
+          <span className="file-actions__name">{selected.name}</span>
+          <button
+            type="button"
+            className="app-path-button"
+            onClick={() => openEntry(selected)}
+            disabled={!selected.previewable}
+          >
+            {selected.previewable ? 'Open' : 'Preview not supported'}
+          </button>
+        </div>
+      ) : null}
+
+      <NavigationBar onHomeClick={onHomeClick} />
     </div>
   );
 }

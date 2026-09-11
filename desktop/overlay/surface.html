@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RitePath Floating Windows</title>
+    <link rel="stylesheet" href="./overlay.css" />
+  </head>
+  <body>
+    <!-- Every floating RitePath window (weather, file viewers) lives in this one
+         overlay view. A single view means one compositing layer, one input
+         layer, and z-order that is just CSS - see surface.js. -->
+    <div id="surface" class="surface"></div>
+
+    <script src="./surface.js"></script>
+  </body>
+</html>
