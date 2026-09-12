@@ -51,6 +51,7 @@ const NAV_EXPANDED_HEIGHT = 220;
 
 // Follow-up passes after a display/orientation change, in ms.
 const SHELL_LAYOUT_SETTLE_DELAYS = [0, 60, 250, 750];
+let shellLayoutTimers = [];
 
 let backendProcess = null;
 let mainWindow = null;
@@ -223,7 +224,7 @@ function sendViewport(view) {
     return;
   }
 
-  const bounds = mainWindow.getContentBounds();
+  const bounds = getShellBounds();
   view.webContents.send('ritepath:overlay-viewport', {
     width: bounds.width,
     height: bounds.height,
@@ -285,7 +286,7 @@ function resizeSurfaceOverlay() {
 
   // The surface always covers the screen while it is attached, and is never
   // resized while a window is visible - that is what keeps dragging stable.
-  const bounds = mainWindow.getContentBounds();
+  const bounds = getShellBounds();
   surfaceView.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
 }
 
@@ -550,7 +551,7 @@ function resizeNavOverlay() {
     return;
   }
 
-  const bounds = mainWindow.getContentBounds();
+  const bounds = getShellBounds();
   const height = Math.min(
     navOverlayExpanded ? NAV_EXPANDED_HEIGHT : NAV_COLLAPSED_HEIGHT,
     bounds.height,
@@ -596,12 +597,34 @@ function hideNavOverlay() {
   navOverlayExpanded = false;
 }
 
+// Single source of truth for the shell's usable area.
+//
+// Normally this is simply the window's content bounds. In kiosk/fullscreen the
+// window *is* the display by definition, so the display is trusted instead: on a
+// Raspberry Pi whose screen is already rotated when Electron starts, the window
+// can report stale landscape content bounds, and anything laid out from them
+// ends up short. Reading the display removes that dependency entirely.
+//
+// Nothing is hardcoded and no aspect ratio is involved - both branches report the
+// live dimensions of whatever screen the window is currently on, so laptop
+// landscape, portrait panels and future resolutions all work from the same code.
+function getShellBounds() {
+  const content = mainWindow.getContentBounds();
+
+  if (mainWindow.isKiosk() || mainWindow.isFullScreen()) {
+    const display = screen.getDisplayMatching(mainWindow.getBounds()).bounds;
+    return { width: display.width, height: display.height };
+  }
+
+  return { width: content.width, height: content.height };
+}
+
 // The content area an opened web app is expected to fill. Overlays (Dynamic
 // Island, weather, bottom Home gesture) float above the app rather than taking
 // space from it, so the app view owns the whole rect. Everything is derived from
 // the live window bounds - no resolution is ever assumed.
 function getAppViewBounds() {
-  const bounds = mainWindow.getContentBounds();
+  const bounds = getShellBounds();
 
   return {
     x: 0,
@@ -667,7 +690,7 @@ function layoutShell() {
   // The keyboard is laid out first because every other view's bounds are derived
   // from the space it leaves behind.
   if (keyboardAttached && keyboardView) {
-    const bounds = mainWindow.getContentBounds();
+    const bounds = getShellBounds();
     const height = Math.min(keyboardHeightFor(bounds), bounds.height);
     keyboardInset = height;
     keyboardView.setBounds({
@@ -690,11 +713,16 @@ function layoutShell() {
   sendViewport(surfaceView);
 
   if (process.env.RITEPATH_DEBUG_LAYOUT === '1') {
+    // content and shell differing is the signature of the bug this guards
+    // against: the window reporting one size while the display is another.
     const content = mainWindow.getContentBounds();
+    const shell = getShellBounds();
     console.log(
-      '[ritepath:layout] content=%dx%d app=%s',
+      '[ritepath:layout] content=%dx%d shell=%dx%d app=%s',
       content.width,
       content.height,
+      shell.width,
+      shell.height,
       googleViewAttached ? JSON.stringify(googleView?.getBounds()) : 'detached',
     );
   }
@@ -705,15 +733,21 @@ function layoutShell() {
 // Re-running the layout on the following ticks settles it. Re-laying out is pure
 // geometry - the opened page is never reloaded and keeps its session.
 function scheduleShellLayout() {
+  // Coalesce: a burst of resize/move/display events must not stack several
+  // settle sequences on top of each other.
+  for (const timer of shellLayoutTimers) {
+    clearTimeout(timer);
+  }
+
   refitWindowToDisplay();
   layoutShell();
 
-  for (const delay of SHELL_LAYOUT_SETTLE_DELAYS) {
+  shellLayoutTimers = SHELL_LAYOUT_SETTLE_DELAYS.map((delay) =>
     setTimeout(() => {
       refitWindowToDisplay();
       layoutShell();
-    }, delay);
-  }
+    }, delay),
+  );
 }
 
 function showGoogleView(url) {
@@ -732,7 +766,11 @@ function showGoogleView(url) {
   mainWindow.setBackgroundColor('#ffffff');
   mainWindow.addBrowserView(view);
   googleViewAttached = true;
-  resizeGoogleView();
+  // Not a single resizeGoogleView(): a BrowserView does not follow the window
+  // the way the window's own webContents does, so reading the bounds once at
+  // open time is exactly how a stale rect gets frozen in. Settling over the
+  // following ticks costs nothing and never reloads the page.
+  scheduleShellLayout();
   void view.webContents.loadURL(targetUrl);
   showNavOverlay();
   raiseOverlays();
@@ -801,8 +839,12 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+  // scheduleShellLayout rather than layoutShell: a resize can also be the tail
+  // end of a rotation, so the window may still need refitting to the display.
+  // refitWindowToDisplay is a no-op once the geometry already matches, so this
+  // settles rather than looping.
   const handleWindowResize = () => {
-    layoutShell();
+    scheduleShellLayout();
   };
 
   mainWindow.on('resize', handleWindowResize);
@@ -876,7 +918,7 @@ function applyOverlayBounds(sender, rect) {
     return null;
   }
 
-  const bounds = mainWindow.getContentBounds();
+  const bounds = getShellBounds();
   const width = Math.max(1, Math.min(Math.round(rect?.width ?? 1), bounds.width));
   const height = Math.max(1, Math.min(Math.round(rect?.height ?? 1), bounds.height));
   const applied = {
@@ -902,7 +944,7 @@ ipcMain.handle('ritepath:overlay-viewport-get', () => {
     return { width: 0, height: 0 };
   }
 
-  const bounds = mainWindow.getContentBounds();
+  const bounds = getShellBounds();
   return { width: bounds.width, height: bounds.height };
 });
 
@@ -1006,6 +1048,11 @@ app.whenReady().then(() => {
   screen.on('display-metrics-changed', scheduleShellLayout);
   screen.on('display-added', scheduleShellLayout);
   screen.on('display-removed', scheduleShellLayout);
+
+  // A Raspberry Pi whose screen is already rotated when Electron starts never
+  // emits a display event, so without this the shell would keep whatever
+  // geometry the window happened to report while it was still being mapped.
+  scheduleShellLayout();
 
   // Show the last known weather immediately, then refresh in the background.
   void loadCachedWeather().then(broadcastWeather);
